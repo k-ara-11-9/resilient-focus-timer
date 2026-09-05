@@ -47,27 +47,29 @@ header h1 {
 
 header nav {
     display: flex;
-    gap: 16px;
+    background-color: #3d3432;
+    border-radius: 20px;
+    padding: 4px;
 }
 
 header nav a {
     color: #a49692;
     text-decoration: none;
-    font-size: 1rem;
-    font-weight: 500;
-    padding: 8px 12px;
-    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    padding: 6px 16px;
+    border-radius: 16px;
     transition: all 0.2s;
 }
 
-header nav a:hover {
+header nav a:hover:not(.active) {
     color: #e3d9d3;
-    background-color: #3d3432;
 }
 
 header nav a.active {
     color: #1a1514;
     background-color: #ff9d76;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 main {
