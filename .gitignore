@@ -1,0 +1,4 @@
+*.db
+verify.py
+__pycache__/
+*.pyc
