@@ -234,7 +234,23 @@ async function completeSession() {
     saveState();
     
     // Attempt to play sound
-    notificationSound.play().catch(e => console.log('Audio play failed', e));
+    try {
+        await notificationSound.play();
+    } catch (e) {
+        console.log('Audio play failed', e);
+    }
+    
+    if ("Notification" in window && Notification.permission === "granted") {
+        try {
+            new Notification("Focus session complete!");
+        } catch (e) {
+            console.error("Desktop notification failed", e);
+            showFallbackBanner();
+        }
+    } else {
+        showFallbackBanner();
+    }
+
     updateUI(0);
     
     const endTimeIso = new Date().toISOString().split('T')[1].split('.')[0];
@@ -275,6 +291,10 @@ actionBtn.addEventListener('click', async () => {
         notificationSound.pause();
         notificationSound.currentTime = 0;
         audioUnlocked = true;
+    }
+    
+    if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission().catch(e => console.error("Notification permission request failed", e));
     }
     
     actionBtn.disabled = true;
@@ -323,3 +343,17 @@ document.addEventListener('visibilitychange', () => {
 
 // Initialize UI from local storage
 loadState();
+
+function showFallbackBanner() {
+    let banner = document.getElementById('completionBanner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'completionBanner';
+        banner.className = 'completion-banner';
+        banner.innerHTML = `
+            <span>Focus session complete!</span>
+            <button onclick="this.parentElement.remove()">Dismiss</button>
+        `;
+        document.body.appendChild(banner);
+    }
+}
