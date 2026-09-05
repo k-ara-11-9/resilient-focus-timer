@@ -7,13 +7,16 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="app-container">
-        <header>
-            <h1>Focus timer</h1>
-            <nav><a href="/history">History</a></nav>
-        </header>
-        
-        <main>
+    <header>
+        <h1>Focus timer</h1>
+        <nav>
+            <a href="/" class="active">Timer</a>
+            <a href="/history">History</a>
+        </nav>
+    </header>
+    <div class="page-wrapper">
+        <div class="app-container">
+            <main>
             <div class="timer-container">
                 <svg class="progress-ring" viewBox="0 0 100 100">
                     <circle class="progress-ring__track" cx="50" cy="50" r="45"></circle>
@@ -31,6 +34,7 @@
                 <button id="intrusionBtn" disabled>Intrusion</button>
             </div>
         </main>
+        </div>
     </div>
     
     <!-- Free notification sound preview from Mixkit -->

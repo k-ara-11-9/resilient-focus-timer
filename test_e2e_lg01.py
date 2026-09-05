@@ -37,7 +37,20 @@ def run_tests():
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             
-            # TEST 4: Empty state
+            # TEST: Loading state
+            print("=== TEST: Loading State ===")
+            def delay_response(route):
+                time.sleep(1.0)
+                route.continue_()
+            
+            page.route("**/sessions", delay_response)
+            page.goto('http://127.0.0.1:5000/history')
+            loading_state = page.locator('#loadingState').inner_text()
+            print(f"Loading state text: '{loading_state}'")
+            assert "Loading..." in loading_state
+            page.unroute("**/sessions")
+            
+            # TEST: Empty state
             print("=== TEST: Empty State ===")
             setup_db()
             page.goto('http://127.0.0.1:5000/history')
@@ -49,13 +62,18 @@ def run_tests():
             # TEST 1, 2, 3
             print("\n=== TEST: History List (Completed, Paused, Ordering) ===")
             setup_db()
+            import datetime
+            today = datetime.datetime.now()
+            yesterday = today - datetime.timedelta(days=1)
+            older = today - datetime.timedelta(days=10)
+            
             seed_db([
                 # Oldest, completed, 2 interruptions
-                {'date': '2026-08-25', 'start_time': '10:00:00', 'end_time': '10:25:00', 'duration': 25, 'status': 'completed', 'interruptions': 2},
-                # Newer, completed, 0 interruptions
-                {'date': '2026-08-26', 'start_time': '11:00:00', 'end_time': '11:25:00', 'duration': 25, 'status': 'completed', 'interruptions': 0},
-                # Newest, paused (should not appear)
-                {'date': '2026-08-27', 'start_time': '12:00:00', 'status': 'paused', 'interruptions': 5}
+                {'date': older.strftime('%Y-%m-%d'), 'start_time': '10:00:00', 'end_time': '10:25:00', 'duration': 25, 'status': 'completed', 'interruptions': 2},
+                # Yesterday, completed, 0 interruptions
+                {'date': yesterday.strftime('%Y-%m-%d'), 'start_time': '11:00:00', 'end_time': '11:25:00', 'duration': 25, 'status': 'completed', 'interruptions': 0},
+                # Today, paused (should not appear)
+                {'date': today.strftime('%Y-%m-%d'), 'start_time': '12:00:00', 'status': 'paused', 'interruptions': 5}
             ])
             
             page.goto('http://127.0.0.1:5000/history')
@@ -66,7 +84,7 @@ def run_tests():
             print(f"Found {count} history cards.")
             assert count == 2, f"Expected 2 cards, got {count}"
             
-            # The newest completed should be first
+            # The newest completed should be first (Yesterday)
             card_0_date = cards.nth(0).locator('.history-date').inner_text()
             card_0_details = cards.nth(0).locator('.history-details').inner_text()
             print(f"Card 1: {card_0_date} | {card_0_details}")
@@ -75,10 +93,11 @@ def run_tests():
             card_1_details = cards.nth(1).locator('.history-details').inner_text()
             print(f"Card 2: {card_1_date} | {card_1_details}")
             
-            assert "Aug 26" in card_0_date
+            assert "Yesterday" in card_0_date
             assert "0 interruptions" in card_0_details
             
-            assert "Aug 25" in card_1_date
+            assert "Yesterday" not in card_1_date
+            assert "Today" not in card_1_date
             assert "2 interruptions" in card_1_details
             
             browser.close()

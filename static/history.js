@@ -12,16 +12,33 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
             
+            const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            const now = new Date();
+            const pad = n => n.toString().padStart(2, '0');
+            const todayStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+            
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth()+1)}-${pad(yesterday.getDate())}`;
+
             sessions.forEach(session => {
-                // SQLite dates are YYYY-MM-DD. Parsing directly with new Date('YYYY-MM-DD') 
-                // in JS gives UTC, which aligns correctly with getUTCDate().
                 let dateStr = "Unknown";
-                if (session.date) {
-                    const dateObj = new Date(session.date);
-                    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                    const month = monthNames[dateObj.getUTCMonth()];
-                    const day = dateObj.getUTCDate();
-                    dateStr = `${month} ${day}`;
+                if (session.date && session.start_time) {
+                    // Combine date and time as UTC to get local equivalent
+                    const sessionDate = new Date(`${session.date}T${session.start_time}Z`);
+                    if (!isNaN(sessionDate.getTime())) {
+                        const localDateStr = `${sessionDate.getFullYear()}-${pad(sessionDate.getMonth()+1)}-${pad(sessionDate.getDate())}`;
+                        if (localDateStr === todayStr) {
+                            dateStr = "Today";
+                        } else if (localDateStr === yesterdayStr) {
+                            dateStr = "Yesterday";
+                        } else {
+                            dateStr = `${monthNames[sessionDate.getMonth()]} ${sessionDate.getDate()}`;
+                        }
+                    } else {
+                        // Fallback
+                        dateStr = session.date;
+                    }
                 }
                 
                 const duration = session.duration || 25;
@@ -37,6 +54,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 historyList.appendChild(card);
             });
+            
+            if (sessions.length > 5) {
+                const moreDiv = document.createElement('div');
+                moreDiv.className = 'more-sessions';
+                moreDiv.textContent = 'more sessions below';
+                document.querySelector('.history-main').appendChild(moreDiv);
+            }
         } else {
             historyList.innerHTML = '<div class="empty-state">Error loading history.</div>';
         }
