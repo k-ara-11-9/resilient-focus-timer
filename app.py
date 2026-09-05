@@ -17,6 +17,20 @@ def get_db():
 @app.route('/sessions', methods=['GET'])
 def get_sessions():
     status_filter = request.args.get('status')
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    
+    import datetime
+    def validate_date(date_text):
+        try:
+            if date_text:
+                datetime.datetime.strptime(date_text, '%Y-%m-%d')
+            return True
+        except ValueError:
+            return False
+
+    if not validate_date(date_from) or not validate_date(date_to):
+        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
     
     conn = get_db()
     cursor = conn.cursor()
@@ -35,8 +49,41 @@ def get_sessions():
         else:
             return jsonify([]), 200
             
+    # Default behavior: return completed sessions
+    query = """
+        SELECT s.SessionID, s.date, s.start_time, s.duration, s.status,
+               COUNT(i.InterruptionID) as interruption_count
+        FROM Session s
+        LEFT JOIN Interruption i ON s.SessionID = i.SessionID
+        WHERE s.status = 'completed'
+    """
+    params = []
+
+    if date_from:
+        query += " AND s.date >= ?"
+        params.append(date_from)
+    if date_to:
+        query += " AND s.date <= ?"
+        params.append(date_to)
+
+    query += " GROUP BY s.SessionID ORDER BY s.SessionID DESC"
+    
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
     conn.close()
-    return jsonify([]), 200
+
+    sessions = []
+    for row in rows:
+        sessions.append({
+            'sessionID': row['SessionID'],
+            'date': row['date'],
+            'start_time': row['start_time'],
+            'duration': row['duration'],
+            'status': row['status'],
+            'interruption_count': row['interruption_count']
+        })
+
+    return jsonify(sessions), 200
 
 @app.route('/sessions', methods=['POST'])
 def create_session():
@@ -170,6 +217,10 @@ def log_interruption(session_id):
         'interruptionID': interruption_id,
         'timestamp': timestamp
     }), 201
+
+@app.route('/history')
+def history():
+    return render_template('history.html')
 
 @app.route('/')
 def index():

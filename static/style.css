@@ -24,10 +24,28 @@ body {
     flex-direction: column;
 }
 
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 60px;
+    width: 100%;
+}
+
 header h1 {
     font-size: 1.2rem;
     font-weight: 700;
-    margin-bottom: 60px;
+}
+
+header nav a {
+    color: #a0a0a0;
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: color 0.2s;
+}
+
+header nav a:hover {
+    color: #ff9d76;
 }
 
 main {
@@ -139,4 +157,52 @@ main {
 #intrusionBtn:disabled {
     opacity: 0.3;
     cursor: not-allowed;
+}
+
+/* History Screen */
+.history-main {
+    align-items: stretch;
+    width: 100%;
+    overflow-y: auto;
+}
+
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+}
+
+.history-card {
+    background-color: #1a1a1a;
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border: 1px solid #333;
+}
+
+.history-date {
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.history-details {
+    color: #a0a0a0;
+    font-size: 0.9rem;
+}
+
+.more-sessions {
+    text-align: center;
+    color: #a0a0a0;
+    font-size: 0.9rem;
+    margin-top: 24px;
+}
+
+.empty-state {
+    text-align: center;
+    color: #a0a0a0;
+    font-size: 1rem;
+    padding: 40px 0;
 }
