@@ -1,4 +1,5 @@
 const actionBtn = document.getElementById('actionBtn');
+const intrusionBtn = document.getElementById('intrusionBtn');
 const timeDisplay = document.getElementById('timeDisplay');
 const statusDisplay = document.getElementById('statusDisplay');
 const progressCircle = document.querySelector('.progress-ring__circle');
@@ -18,7 +19,7 @@ progressCircle.style.strokeDasharray = CIRCUMFERENCE;
 progressCircle.style.strokeDashoffset = 0;
 
 // Load from local storage
-function loadState() {
+async function loadState() {
     const savedState = localStorage.getItem('focusTimer_state');
     if (savedState) {
         state = savedState;
@@ -34,6 +35,42 @@ function loadState() {
         }
     } else {
         updateUI(DURATION_MS);
+    }
+
+    // Verify button state with server
+    try {
+        const res = await fetch('/sessions?status=running');
+        if (res.ok) {
+            const data = await res.json();
+            const serverIsRunning = data.length > 0;
+            
+            if (serverIsRunning) {
+                const serverSession = data[0];
+                if (state !== 'running' || currentSessionId != serverSession.sessionID) {
+                    state = 'running';
+                    currentSessionId = serverSession.sessionID;
+                    if (!sessionEndTime) {
+                        sessionEndTime = Date.now() + DURATION_MS;
+                        elapsedMs = 0;
+                    }
+                    saveState();
+                    tick();
+                }
+            } else {
+                if (state === 'running') {
+                    // Server has no running session; fix local state
+                    state = 'paused'; 
+                    if (animationFrameId) {
+                        cancelAnimationFrame(animationFrameId);
+                        animationFrameId = null;
+                    }
+                    saveState();
+                    updateUI(DURATION_MS - (sessionEndTime ? sessionEndTime - Date.now() : 0));
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Server sync failed:", e);
     }
 }
 
@@ -69,12 +106,16 @@ function updateUI(remainingMs) {
 
     if (state === 'idle') {
         actionBtn.textContent = 'Start Timer';
+        intrusionBtn.disabled = true;
     } else if (state === 'running') {
         actionBtn.textContent = 'Pause';
+        intrusionBtn.disabled = false;
     } else if (state === 'paused') {
         actionBtn.textContent = 'Resume';
+        intrusionBtn.disabled = true;
     } else if (state === 'completed') {
         actionBtn.textContent = 'Start New';
+        intrusionBtn.disabled = true;
     }
 }
 
@@ -220,6 +261,27 @@ actionBtn.addEventListener('click', () => {
         pauseTimer();
     } else if (state === 'paused') {
         startTimer(); // Actually it resumes
+    }
+});
+
+intrusionBtn.addEventListener('click', async () => {
+    if (state !== 'running' || !currentSessionId) return;
+
+    const timestampIso = new Date().toISOString();
+    try {
+        const res = await fetch(`/sessions/${currentSessionId}/interruptions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timestamp: timestampIso })
+        });
+        if (!res.ok) {
+            console.error("Failed to log intrusion:", await res.json());
+        } else {
+            // Optional visual feedback could go here, but requirements say:
+            // "without pausing or resetting. ... feel like a background action."
+        }
+    } catch (e) {
+        console.error("Failed to reach server for intrusion logging:", e);
     }
 });
 

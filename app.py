@@ -14,6 +14,30 @@ def get_db():
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
+@app.route('/sessions', methods=['GET'])
+def get_sessions():
+    status_filter = request.args.get('status')
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    if status_filter == 'running':
+        cursor.execute("SELECT SessionID, start_time, status FROM Session WHERE status = 'running'")
+        session = cursor.fetchone()
+        conn.close()
+        
+        if session:
+            return jsonify([{
+                'sessionID': session['SessionID'],
+                'start_time': session['start_time'],
+                'status': session['status']
+            }]), 200
+        else:
+            return jsonify([]), 200
+            
+    conn.close()
+    return jsonify([]), 200
+
 @app.route('/sessions', methods=['POST'])
 def create_session():
     data = request.get_json()
@@ -109,6 +133,43 @@ def update_session(session_id):
         'duration': updated_session['duration'],
         'end_time': updated_session['end_time']
     }), 200
+
+@app.route('/sessions/<int:session_id>/interruptions', methods=['POST'])
+def log_interruption(session_id):
+    data = request.get_json()
+    if not data or 'timestamp' not in data:
+        return jsonify({'error': 'timestamp is required'}), 400
+
+    timestamp = data['timestamp']
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Verify session exists and is running
+    cursor.execute("SELECT status FROM Session WHERE SessionID = ?", (session_id,))
+    session = cursor.fetchone()
+
+    if not session:
+        conn.close()
+        return jsonify({'error': 'Session not found'}), 404
+
+    if session['status'] != 'running':
+        conn.close()
+        return jsonify({'error': 'Cannot log interruption for a non-running session'}), 409
+
+    # Insert interruption
+    cursor.execute(
+        "INSERT INTO Interruption (SessionID, timestamp) VALUES (?, ?)",
+        (session_id, timestamp)
+    )
+    interruption_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'interruptionID': interruption_id,
+        'timestamp': timestamp
+    }), 201
 
 @app.route('/')
 def index():

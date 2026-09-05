@@ -118,3 +118,25 @@ main {
 #actionBtn:hover {
     opacity: 0.9;
 }
+
+#intrusionBtn {
+    background-color: transparent;
+    color: #ff9d76;
+    border: 1px solid #5a2e1d;
+    border-radius: 24px;
+    padding: 16px;
+    font-size: 1.1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s, background-color 0.2s;
+}
+
+#intrusionBtn:hover:not(:disabled) {
+    background-color: #5a2e1d;
+    color: #1a1514;
+}
+
+#intrusionBtn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
