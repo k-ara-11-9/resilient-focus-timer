@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             if (sessions.length === 0) {
                 historyList.innerHTML = '<div class="empty-state">No completed sessions yet. Get focused!</div>';
-                document.querySelector('.more-sessions').style.display = 'none';
                 return;
             }
             

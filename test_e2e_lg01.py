@@ -29,7 +29,7 @@ def seed_db(sessions):
 
 def run_tests():
     print("Starting Flask server for E2E tests...")
-    server = subprocess.Popen([sys.executable, 'app.py'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    server = subprocess.Popen([sys.executable, 'app.py'])
     time.sleep(2)
     
     try:
@@ -39,16 +39,24 @@ def run_tests():
             
             # TEST: Loading state
             print("=== TEST: Loading State ===")
+            route_event = []
             def delay_response(route):
-                time.sleep(1.0)
-                route.continue_()
+                route_event.append(route)
             
-            page.route("**/sessions", delay_response)
-            page.goto('http://127.0.0.1:5000/history')
+            page.route("**/sessions*", delay_response)
+            page.goto('http://127.0.0.1:5000/history', wait_until="domcontentloaded")
+            
             loading_state = page.locator('#loadingState').inner_text()
             print(f"Loading state text: '{loading_state}'")
             assert "Loading..." in loading_state
-            page.unroute("**/sessions")
+            
+            if route_event:
+                route_event[0].continue_()
+            
+            # Wait for fetch to complete before moving to next test
+            page.wait_for_selector('.history-list > div:not(#loadingState)')
+            
+            page.unroute("**/sessions*")
             
             # TEST: Empty state
             print("=== TEST: Empty State ===")

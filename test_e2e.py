@@ -21,11 +21,24 @@ def run_tests():
         page.goto('http://127.0.0.1:5000')
         
         print("Starting timer and checking if button disables...")
+        route_event = []
+        def delay_start(route):
+            if route.request.method == 'POST':
+                route_event.append(route)
+            else:
+                route.continue_()
+                
+        page.route("**/sessions", delay_start)
         page.locator('#actionBtn').evaluate("el => { el.click(); }")
         
         is_disabled = page.locator('#actionBtn').evaluate("el => el.disabled")
         print(f"Button disabled immediately after click: {is_disabled}")
         assert is_disabled, "Button did not disable during fetch"
+        
+        # Now let the request finish
+        if route_event:
+            route_event[0].continue_()
+        page.unroute("**/sessions")
         
         # Wait for the network request to finish and button to re-enable (become 'Pause')
         page.wait_for_selector('button:has-text("Pause")')
