@@ -9,43 +9,65 @@ body {
     color: #ffffff;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.page-wrapper {
+    flex: 1;
+    display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
+    overflow-y: auto;
 }
 
 .app-container {
     width: 100%;
-    max-width: 400px;
-    height: 100%;
-    max-height: 800px;
+    max-width: 480px;
     padding: 24px;
     display: flex;
     flex-direction: column;
 }
 
 header {
+    width: 100%;
+    background-color: #2b2422;
+    padding: 16px 32px;
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 60px;
-    width: 100%;
+    align-items: center;
+    border-bottom: 1px solid #3d3432;
 }
 
 header h1 {
-    font-size: 1.2rem;
+    font-size: 1.4rem;
     font-weight: 700;
+    color: #ff9d76;
+}
+
+header nav {
+    display: flex;
+    gap: 16px;
 }
 
 header nav a {
-    color: #a0a0a0;
+    color: #a49692;
     text-decoration: none;
-    font-size: 0.9rem;
-    transition: color 0.2s;
+    font-size: 1rem;
+    font-weight: 500;
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: all 0.2s;
 }
 
 header nav a:hover {
-    color: #ff9d76;
+    color: #e3d9d3;
+    background-color: #3d3432;
+}
+
+header nav a.active {
+    color: #1a1514;
+    background-color: #ff9d76;
 }
 
 main {

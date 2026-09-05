@@ -17,11 +17,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // in JS gives UTC, which aligns correctly with getUTCDate().
                 let dateStr = "Unknown";
                 if (session.date) {
-                    const dateObj = new Date(session.date);
-                    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                    const month = monthNames[dateObj.getUTCMonth()];
-                    const day = dateObj.getUTCDate();
-                    dateStr = `${month} ${day}`;
+                    const now = new Date();
+                    const pad = n => n.toString().padStart(2, '0');
+                    const todayStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+                    
+                    const yesterday = new Date(now);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    const yesterdayStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth()+1)}-${pad(yesterday.getDate())}`;
+                    
+                    if (session.date === todayStr) {
+                        dateStr = "Today";
+                    } else if (session.date === yesterdayStr) {
+                        dateStr = "Yesterday";
+                    } else {
+                        const dateObj = new Date(session.date);
+                        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                        const month = monthNames[dateObj.getUTCMonth()];
+                        const day = dateObj.getUTCDate();
+                        dateStr = `${month} ${day}`;
+                    }
                 }
                 
                 const duration = session.duration || 25;

@@ -7,18 +7,22 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="app-container">
-        <header>
-            <h1>History</h1>
-            <nav><a href="/">Timer</a></nav>
-        </header>
-        
-        <main class="history-main">
-            <div id="historyList" class="history-list">
-                <!-- Session cards will go here -->
-            </div>
-            <div class="more-sessions">more sessions below</div>
-        </main>
+    <header>
+        <h1>Focus timer</h1>
+        <nav>
+            <a href="/">Timer</a>
+            <a href="/history" class="active">History</a>
+        </nav>
+    </header>
+    <div class="page-wrapper">
+        <div class="app-container">
+            <main class="history-main">
+                <div id="historyList" class="history-list">
+                    <div class="empty-state" id="loadingState">Loading...</div>
+                </div>
+                <div class="more-sessions">more sessions below</div>
+            </main>
+        </div>
     </div>
     
     <script src="/static/history.js"></script>
