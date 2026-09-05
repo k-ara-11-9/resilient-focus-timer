@@ -97,12 +97,25 @@ function formatTime(ms) {
 }
 
 function updateUI(remainingMs) {
-    timeDisplay.textContent = formatTime(remainingMs);
+    const timeStr = formatTime(remainingMs);
+    timeDisplay.textContent = timeStr;
     statusDisplay.textContent = state;
+    
+    if (state === 'running' || state === 'paused') {
+        document.title = `${timeStr} - Focus Timer`;
+    } else {
+        document.title = "Resilient Focus Timer";
+    }
     
     const progress = (DURATION_MS - remainingMs) / DURATION_MS;
     const offset = progress * CIRCUMFERENCE;
     progressCircle.style.strokeDashoffset = offset;
+    
+    if (state === 'paused') {
+        progressCircle.classList.add('paused');
+    } else {
+        progressCircle.classList.remove('paused');
+    }
 
     if (state === 'idle') {
         actionBtn.textContent = 'Start Timer';
@@ -253,14 +266,29 @@ function resetTimer() {
     updateUI(DURATION_MS);
 }
 
-actionBtn.addEventListener('click', () => {
-    if (state === 'idle' || state === 'completed') {
-        if (state === 'completed') resetTimer();
-        startTimer();
-    } else if (state === 'running') {
-        pauseTimer();
-    } else if (state === 'paused') {
-        startTimer(); // Actually it resumes
+let audioUnlocked = false;
+
+actionBtn.addEventListener('click', async () => {
+    if (!audioUnlocked) {
+        // Unlock audio on first user interaction to bypass autoplay restrictions
+        notificationSound.play().catch(() => {});
+        notificationSound.pause();
+        notificationSound.currentTime = 0;
+        audioUnlocked = true;
+    }
+    
+    actionBtn.disabled = true;
+    try {
+        if (state === 'idle' || state === 'completed') {
+            if (state === 'completed') resetTimer();
+            await startTimer();
+        } else if (state === 'running') {
+            await pauseTimer();
+        } else if (state === 'paused') {
+            await startTimer(); // Actually it resumes
+        }
+    } finally {
+        actionBtn.disabled = false;
     }
 });
 
