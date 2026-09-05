@@ -312,8 +312,12 @@ actionBtn.addEventListener('click', async () => {
     }
 });
 
+let intrusionInFlight = false;
 intrusionBtn.addEventListener('click', async () => {
-    if (state !== 'running' || !currentSessionId) return;
+    if (state !== 'running' || !currentSessionId || intrusionInFlight) return;
+    
+    intrusionInFlight = true;
+    setTimeout(() => { intrusionInFlight = false; }, 500);
 
     const timestampIso = new Date().toISOString();
     try {
@@ -324,9 +328,6 @@ intrusionBtn.addEventListener('click', async () => {
         });
         if (!res.ok) {
             console.error("Failed to log intrusion:", await res.json());
-        } else {
-            // Optional visual feedback could go here, but requirements say:
-            // "without pausing or resetting. ... feel like a background action."
         }
     } catch (e) {
         console.error("Failed to reach server for intrusion logging:", e);
@@ -334,12 +335,26 @@ intrusionBtn.addEventListener('click', async () => {
 });
 
 // Handle visibility changes to resync the timer when returning to tab
-// This fulfills the reliability requirement and prevents race conditions
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && state === 'running') {
         tick();
     }
 });
+
+// Update title while backgrounded (since requestAnimationFrame pauses)
+setInterval(() => {
+    if (document.visibilityState === 'hidden' && state === 'running') {
+        const now = Date.now();
+        let remainingMs = sessionEndTime - now;
+        if (remainingMs <= 0) {
+            remainingMs = 0;
+            completeSession();
+        } else {
+            const timeStr = formatTime(remainingMs);
+            document.title = `${timeStr} - Focus Timer`;
+        }
+    }
+}, 1000);
 
 // Initialize UI from local storage
 loadState();

@@ -80,7 +80,7 @@ main {
     stroke-width: 4;
     stroke-dasharray: 283; /* 2 * pi * 45 ≈ 282.7 */
     stroke-dashoffset: 0;
-    transition: stroke-dashoffset 0.1s linear, stroke 0.3s ease;
+    transition: stroke 0.3s ease;
 }
 
 .progress-ring__circle.paused {
