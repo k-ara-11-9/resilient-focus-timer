@@ -1,5 +1,6 @@
 const actionBtn = document.getElementById('actionBtn');
 const intrusionBtn = document.getElementById('intrusionBtn');
+const intrusionCountDisplay = document.getElementById('intrusionCount');
 const timeDisplay = document.getElementById('timeDisplay');
 const statusDisplay = document.getElementById('statusDisplay');
 const progressCircle = document.querySelector('.progress-ring__circle');
@@ -13,6 +14,7 @@ let elapsedMs = 0;
 let sessionEndTime = null;
 let animationFrameId = null;
 let currentSessionId = null;
+let interruptionCount = 0;
 let patchInFlight = false; // Prevent race conditions
 
 progressCircle.style.strokeDasharray = CIRCUMFERENCE;
@@ -27,6 +29,8 @@ async function loadState() {
         const savedEndTime = localStorage.getItem('focusTimer_sessionEndTime');
         sessionEndTime = savedEndTime ? parseInt(savedEndTime, 10) : null;
         currentSessionId = localStorage.getItem('focusTimer_sessionId');
+        interruptionCount = parseInt(localStorage.getItem('focusTimer_interruptionCount'), 10) || 0;
+        updateIntrusionCountUI();
         
         if (state === 'running') {
             tick();
@@ -86,6 +90,17 @@ function saveState() {
         localStorage.setItem('focusTimer_sessionId', currentSessionId.toString());
     } else {
         localStorage.removeItem('focusTimer_sessionId');
+    }
+    localStorage.setItem('focusTimer_interruptionCount', interruptionCount.toString());
+}
+
+function updateIntrusionCountUI() {
+    if (interruptionCount > 0) {
+        intrusionCountDisplay.style.display = 'inline-block';
+        intrusionCountDisplay.textContent = interruptionCount;
+    } else {
+        intrusionCountDisplay.style.display = 'none';
+        intrusionCountDisplay.textContent = '0';
     }
 }
 
@@ -249,6 +264,8 @@ function resetTimer() {
     elapsedMs = 0;
     sessionEndTime = null;
     currentSessionId = null;
+    interruptionCount = 0;
+    updateIntrusionCountUI();
     saveState();
     updateUI(DURATION_MS);
 }
@@ -264,8 +281,34 @@ actionBtn.addEventListener('click', () => {
     }
 });
 
+function showToast(message, isError = false) {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = 'toast' + (isError ? ' error' : '');
+    toast.textContent = message;
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 1500);
+}
+
+let lastIntrusionClickTime = 0;
+
 intrusionBtn.addEventListener('click', async () => {
     if (state !== 'running' || !currentSessionId) return;
+
+    const now = Date.now();
+    if (now - lastIntrusionClickTime < 500) {
+        return; // Debounce rapid clicks within 500ms
+    }
+    lastIntrusionClickTime = now;
 
     const timestampIso = new Date().toISOString();
     try {
@@ -276,12 +319,16 @@ intrusionBtn.addEventListener('click', async () => {
         });
         if (!res.ok) {
             console.error("Failed to log intrusion:", await res.json());
+            showToast("Failed to log interruption", true);
         } else {
-            // Optional visual feedback could go here, but requirements say:
-            // "without pausing or resetting. ... feel like a background action."
+            interruptionCount++;
+            updateIntrusionCountUI();
+            saveState();
+            showToast("Interruption logged");
         }
     } catch (e) {
         console.error("Failed to reach server for intrusion logging:", e);
+        showToast("Network error: Failed to log interruption", true);
     }
 });
 

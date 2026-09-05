@@ -39,11 +39,35 @@ def run_tests():
             
             print("Logging 3 intrusions with a slight delay...")
             page.click('#intrusionBtn')
+            page.wait_for_selector('.toast:not(.error):has-text("Interruption logged")', state='visible')
             time.sleep(0.5)
+            
+            count = page.locator('#intrusionCount').inner_text()
+            assert count == "1", f"Expected count 1, got {count}"
+            
+            print("Testing error toast for failed interruption...")
+            page.route("**/interruptions", lambda route: route.fulfill(status=500, body='{"error":"Internal Server Error"}'))
+            page.click('#intrusionBtn')
+            page.wait_for_selector('.toast.error:has-text("Failed to log interruption")', state='visible')
+            page.unroute("**/interruptions")
+            time.sleep(0.5)
+            
+            count = page.locator('#intrusionCount').inner_text()
+            assert count == "1", f"Expected count 1 after failure, got {count}"
+            
             page.click('#intrusionBtn')
             time.sleep(0.5)
             page.click('#intrusionBtn')
             time.sleep(1)
+            
+            count = page.locator('#intrusionCount').inner_text()
+            assert count == "3", f"Expected count 3, got {count}"
+            
+            print("Testing rapid clicks (debounce)...")
+            page.locator('#intrusionBtn').evaluate("el => { el.click(); el.click(); el.click(); }")
+            time.sleep(1) # wait for network to resolve
+            count = page.locator('#intrusionCount').inner_text()
+            assert count == "4", f"Expected count 4 after 3 rapid clicks (debounced to 1), got {count}"
             
             print("Pausing timer...")
             page.click('#actionBtn') # Click pause
