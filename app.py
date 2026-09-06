@@ -130,6 +130,26 @@ def create_session():
         'status': 'running'
     }), 201
 
+@app.route('/sessions/<int:session_id>', methods=['GET'])
+def get_session(session_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM Session WHERE SessionID = ?", (session_id,))
+    session = cursor.fetchone()
+    conn.close()
+
+    if session:
+        return jsonify({
+            'sessionID': session['SessionID'],
+            'date': session['date'],
+            'start_time': session['start_time'],
+            'end_time': session['end_time'],
+            'duration': session['duration'],
+            'status': session['status']
+        }), 200
+    else:
+        return jsonify({'error': 'Session not found'}), 404
+
 @app.route('/sessions/<int:session_id>', methods=['PATCH'])
 def update_session(session_id):
     data = request.get_json()

@@ -64,14 +64,34 @@ async function loadState() {
                 }
             } else {
                 if (state === 'running') {
-                    // Server has no running session; fix local state
-                    state = 'paused'; 
-                    if (animationFrameId) {
-                        cancelAnimationFrame(animationFrameId);
-                        animationFrameId = null;
+                    let legitimatelyEnded = false;
+                    if (currentSessionId) {
+                        const sessionRes = await fetch(`/sessions/${currentSessionId}`);
+                        if (sessionRes.ok) {
+                            const sessionData = await sessionRes.json();
+                            if (sessionData.status === 'completed' || sessionData.status === 'stopped_early') {
+                                legitimatelyEnded = true;
+                            }
+                        }
                     }
-                    saveState();
-                    updateUI(DURATION_MS - (sessionEndTime ? sessionEndTime - Date.now() : 0));
+
+                    if (legitimatelyEnded) {
+                        if (animationFrameId) {
+                            cancelAnimationFrame(animationFrameId);
+                            animationFrameId = null;
+                        }
+                        resetTimer();
+                        showToast("This session was ended on another device");
+                    } else {
+                        // Server has no running session; fix local state
+                        state = 'paused'; 
+                        if (animationFrameId) {
+                            cancelAnimationFrame(animationFrameId);
+                            animationFrameId = null;
+                        }
+                        saveState();
+                        updateUI(DURATION_MS - (sessionEndTime ? sessionEndTime - Date.now() : 0));
+                    }
                 }
             }
         }
