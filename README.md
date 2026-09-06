@@ -74,7 +74,14 @@ resilient-focus-timer/
 
 Double-click `run.bat`. It creates a virtual environment, installs dependencies, runs the database migration if needed, and starts the server at `http://127.0.0.1:5000`.
 
-### 2. Manual (all platforms)
+### 2. Linux / macOS — one-click
+
+Run `./run.sh` from the repo root (make it executable first if needed:
+`chmod +x run.sh`). It creates a virtual environment, installs
+dependencies, runs the database migration if needed, and starts the
+server at http://127.0.0.1:5000.
+
+### 3. Manual (all platforms)
 
 **Windows (PowerShell):**
 ```
@@ -96,7 +103,7 @@ python app.py
 
 Open `http://127.0.0.1:5000` once the server starts.
 
-### 3. Running tests (optional)
+### 4. Running tests (optional)
 
 Tests use Playwright, which is not required to run the app itself:
 ```
