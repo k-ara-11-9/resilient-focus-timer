@@ -124,6 +124,17 @@ python tests/test_e2e.py
 
 ---
 
+## Known Limitations
+
+This release covers Sprint 1's Must-have stories only. The following are deliberate scope boundaries, not bugs:
+
+- **Single-user, single-session by design.** The `User` table is a minimal stub with no authentication. Every visitor to a deployed instance shares the same database and the same "current session" — if one person starts a timer, anyone else who opens the app sees that same session running, not a fresh one. Multi-user support is out of scope for Sprint 1.
+- **No cloud sync.** Data is stored locally in SQLite only (`SY-01`). Multi-device sync (`SY-02`) is a planned future story, not yet implemented.
+- **Fixed 25-minute sessions.** `duration` is not yet configurable or dynamically computed for partial sessions — every completed session is recorded as 25 minutes by design.
+- **Development server only.** The app currently runs on Flask's built-in development server, which is not intended for production traffic. A production WSGI server (e.g. gunicorn) would be the next step for a public, multi-user deployment.
+
+---
+
 ## License
 
 See [LICENSE](LICENSE).
