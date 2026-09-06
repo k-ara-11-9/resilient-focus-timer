@@ -2,11 +2,13 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime
+import os
 
 app = Flask(__name__)
 CORS(app) # Enable CORS for frontend
 
-DB_NAME = 'focus_timer.db'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_NAME = os.path.join(BASE_DIR, 'focus_timer.db')
 
 def get_db():
     conn = sqlite3.connect(DB_NAME)
@@ -134,7 +136,7 @@ def update_session(session_id):
         return jsonify({'error': 'status is required'}), 400
 
     new_status = data['status']
-    if new_status not in ['running', 'paused', 'completed']:
+    if new_status not in ['running', 'paused', 'completed', 'stopped_early']:
         return jsonify({'error': 'Invalid status'}), 400
 
     conn = get_db()
@@ -151,9 +153,9 @@ def update_session(session_id):
     current_status = session['status']
 
     # Validate transition
-    if current_status == 'completed':
+    if current_status in ['completed', 'stopped_early']:
         conn.close()
-        return jsonify({'error': 'Cannot update a completed session'}), 409
+        return jsonify({'error': 'Cannot update a completed or stopped session'}), 409
         
     if current_status == new_status:
         conn.close()

@@ -5,6 +5,7 @@ const timeDisplay = document.getElementById('timeDisplay');
 const statusDisplay = document.getElementById('statusDisplay');
 const progressCircle = document.querySelector('.progress-ring__circle');
 const notificationSound = document.getElementById('notificationSound');
+const stopEarlyBtn = document.getElementById('stopEarlyBtn');
 
 const DURATION_MS = 25 * 60 * 1000;
 const CIRCUMFERENCE = 2 * Math.PI * 45; // ~282.7
@@ -135,15 +136,19 @@ function updateUI(remainingMs) {
     if (state === 'idle') {
         actionBtn.textContent = 'Start Timer';
         intrusionBtn.disabled = true;
+        if (stopEarlyBtn) stopEarlyBtn.style.display = 'none';
     } else if (state === 'running') {
         actionBtn.textContent = 'Pause';
         intrusionBtn.disabled = false;
+        if (stopEarlyBtn) stopEarlyBtn.style.display = 'inline-block';
     } else if (state === 'paused') {
         actionBtn.textContent = 'Resume';
         intrusionBtn.disabled = true;
+        if (stopEarlyBtn) stopEarlyBtn.style.display = 'inline-block';
     } else if (state === 'completed') {
         actionBtn.textContent = 'Start New';
         intrusionBtn.disabled = true;
+        if (stopEarlyBtn) stopEarlyBtn.style.display = 'none';
     }
 }
 
@@ -346,6 +351,45 @@ function showToast(message, isError = false) {
         toast.style.opacity = '0';
         setTimeout(() => toast.remove(), 300);
     }, 1500);
+}
+
+if (stopEarlyBtn) {
+    stopEarlyBtn.addEventListener('click', async () => {
+        if (!currentSessionId || (state !== 'running' && state !== 'paused')) return;
+        
+        stopEarlyBtn.disabled = true;
+        try {
+            const trueEndTime = new Date();
+            const endTimeIso = trueEndTime.toISOString().split('T')[1].split('.')[0];
+            const durationMins = Math.floor(elapsedMs / (60 * 1000));
+            
+            const res = await fetch(`/sessions/${currentSessionId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    status: 'stopped_early',
+                    end_time: endTimeIso,
+                    duration: durationMins
+                })
+            });
+            
+            if (res.ok) {
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
+                resetTimer();
+            } else {
+                console.error("Failed to stop early:", await res.json());
+                showToast("Failed to stop session early", true);
+            }
+        } catch (e) {
+            console.error("Failed to reach server to stop early:", e);
+            showToast("Network error: Failed to stop early", true);
+        } finally {
+            stopEarlyBtn.disabled = false;
+        }
+    });
 }
 
 let intrusionInFlight = false;

@@ -1,7 +1,8 @@
 import sqlite3
 import os
 
-DB_NAME = 'focus_timer.db'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_NAME = os.path.join(BASE_DIR, 'focus_timer.db')
 
 def run_migration():
     print(f"Connecting to {DB_NAME}...")

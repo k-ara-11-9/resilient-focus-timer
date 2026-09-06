@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 historyList.innerHTML = '<div class="empty-state">No completed sessions yet. Get focused!</div>';
                 return;
             }
+
+            historyList.innerHTML = '';
             
             const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
             const now = new Date();
@@ -27,12 +29,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const sessionDate = new Date(`${session.date}T${session.start_time}Z`);
                     if (!isNaN(sessionDate.getTime())) {
                         const localDateStr = `${sessionDate.getFullYear()}-${pad(sessionDate.getMonth()+1)}-${pad(sessionDate.getDate())}`;
+                        
+                        let hours = sessionDate.getHours();
+                        const minutes = pad(sessionDate.getMinutes());
+                        const ampm = hours >= 12 ? 'PM' : 'AM';
+                        hours = hours % 12;
+                        hours = hours ? hours : 12; 
+                        const timeStr = `${hours}:${minutes} ${ampm}`;
+
                         if (localDateStr === todayStr) {
-                            dateStr = "Today";
+                            dateStr = `Today, ${timeStr}`;
                         } else if (localDateStr === yesterdayStr) {
-                            dateStr = "Yesterday";
+                            dateStr = `Yesterday, ${timeStr}`;
                         } else {
-                            dateStr = `${monthNames[sessionDate.getMonth()]} ${sessionDate.getDate()}`;
+                            dateStr = `${monthNames[sessionDate.getMonth()]} ${sessionDate.getDate()}, ${timeStr}`;
                         }
                     } else {
                         // Fallback
