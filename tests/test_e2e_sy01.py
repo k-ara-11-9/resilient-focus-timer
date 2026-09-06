@@ -30,6 +30,23 @@ def run_tests():
             
             print("=== TEST: No network calls during active session ===")
             setup_db()
+            external_calls = []
+            local_fetch_calls = []
+            monitoring_local_fetch = False
+            
+            def on_request(request):
+                from urllib.parse import urlparse
+                parsed = urlparse(request.url)
+                
+                # Check for external domains (ignore data:/about: etc)
+                if parsed.scheme in ['http', 'https']:
+                    if parsed.hostname not in ['127.0.0.1', 'localhost']:
+                        external_calls.append(f"{request.resource_type} to {request.url}")
+                    elif monitoring_local_fetch and request.resource_type in ["fetch", "xhr"]:
+                        local_fetch_calls.append(f"{request.method} {request.url}")
+            
+            page.on("request", on_request)
+            
             page.goto('http://127.0.0.1:5000/')
             time.sleep(1)
             
@@ -40,20 +57,17 @@ def run_tests():
             page.wait_for_selector('button:has-text("Pause")')
             time.sleep(1)
             
-            # Now we monitor network requests
-            network_calls = []
-            def on_request(request):
-                # We only care about XHR/fetch requests to our backend API endpoints
-                if request.resource_type in ["fetch", "xhr"]:
-                    network_calls.append(f"{request.method} {request.url}")
-            
-            page.on("request", on_request)
+            # Now we monitor local fetch/xhr requests during the active phase
+            monitoring_local_fetch = True
             
             print("Timer is running. Waiting 5 seconds to monitor network traffic...")
             time.sleep(5)
             
-            print(f"Captured network calls during active phase: {network_calls}")
-            assert len(network_calls) == 0, f"Expected 0 network calls, but got: {network_calls}"
+            print(f"Captured external network calls during whole flow: {external_calls}")
+            assert len(external_calls) == 0, f"Expected 0 external network calls, but got: {external_calls}"
+            
+            print(f"Captured local fetch/xhr calls during active phase: {local_fetch_calls}")
+            assert len(local_fetch_calls) == 0, f"Expected 0 local fetch/xhr calls, but got: {local_fetch_calls}"
             
             browser.close()
             print("\nAll E2E tests passed! The timer correctly runs entirely locally after starting.")
