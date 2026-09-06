@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resilient Focus Timer</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>Focus timer</h1>
+        <nav>
+            <a href="/" class="active">Timer</a>
+            <a href="/history">History</a>
+        </nav>
+    </header>
+    <div class="page-wrapper">
+        <div class="app-container">
+            <main>
+            <div class="timer-container">
+                <svg class="progress-ring" viewBox="0 0 100 100">
+                    <circle class="progress-ring__track" cx="50" cy="50" r="45"></circle>
+                    <circle class="progress-ring__circle" cx="50" cy="50" r="45"></circle>
+                </svg>
+                <div class="timer-content">
+                    <span class="timer-label">focus session</span>
+                    <span class="timer-time" id="timeDisplay">25:00</span>
+                    <span class="timer-status" id="statusDisplay">idle</span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="actionBtn">Start Timer</button>
+                <button id="intrusionBtn" disabled>
+                    Intrusion <span id="intrusionCount" class="badge" style="display: none;">0</span>
+                </button>
+            </div>
+            <div class="secondary-controls" style="margin-top: 16px; text-align: center;">
+                <button id="stopEarlyBtn" style="display: none; background: none; border: none; color: #a49692; text-decoration: underline; cursor: pointer; font-size: 0.9rem;">Stop early</button>
+            </div>
+        </main>
+        </div>
+    </div>
+    
+    <!-- Free notification sound preview from Mixkit -->
+    <audio id="notificationSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
+    <script src="/static/script.js"></script>
+</body>
+</html>

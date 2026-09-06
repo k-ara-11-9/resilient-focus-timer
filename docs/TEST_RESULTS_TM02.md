@@ -1,0 +1,11 @@
+# TM-02 End-to-End Test Results
+
+| Test Case | Description | Given / When / Then | Result | Key Output |
+|-----------|-------------|---------------------|--------|------------|
+| 1 | Checks that the Intrusion button is initially disabled when no session is active. | **Given** no session is currently active,<br>**When** I look at the screen,<br>**Then** the "Intrusion" button is disabled. | ✅ Pass | Intrusion disabled: `True` |
+| 2 | Checks that the Intrusion button becomes enabled when a session is started. | **Given** no session is active,<br>**When** I tap "Start Timer",<br>**Then** the timer begins and "Intrusion" becomes enabled. | ✅ Pass | Intrusion disabled: `False` |
+| 3 | Verifies intrusions are successfully logged in the background while the timer is running, without pausing it. | **Given** a session is running,<br>**When** I tap "Intrusion" multiple times,<br>**Then** the interruption is timestamped, added to the log, and timer continues. | ✅ Pass | Inserted 3 interruption records |
+| 4 | Verifies the Intrusion button becomes disabled again once the session is paused. | **Given** a session is active,<br>**When** the session is paused,<br>**Then** the "Intrusion" button is disabled. | ✅ Pass | Intrusion disabled: `True` |
+| 5 | Checks that all logged interruptions are stored sequentially in the database. | **Given** multiple interruptions were logged,<br>**When** the session ends,<br>**Then** all interruptions exist in the database in the order they occurred. | ✅ Pass | DB row count: `3` (chronological order) |
+| 6 | Validates UI state recovery from the backend when localStorage is cleared during an active session. | **Given** a session is active but localStorage is cleared,<br>**When** the page reloads,<br>**Then** the server response repopulates the UI state, setting Start/Pause to "Pause" and enabling the Intrusion button. | ✅ Pass | Start/Pause: `"Pause"`<br>Intrusion disabled: `False` |
+| 7 | Validates negative control state recovery when localStorage is cleared and no session is active on the backend. | **Given** no session is active and localStorage is cleared,<br>**When** the page reloads,<br>**Then** the Start/Pause button resets to "Start Timer" and the Intrusion button is disabled. | ✅ Pass | Start/Pause: `"Start Timer"`<br>Intrusion disabled: `True` |

@@ -1,0 +1,9 @@
+*.db
+verify.py
+__pycache__/
+*.pyc
+venv/
+test_api.py
+test_get.py
+test_post.py
+fix_paths.py

@@ -1,0 +1,461 @@
+const actionBtn = document.getElementById('actionBtn');
+const intrusionBtn = document.getElementById('intrusionBtn');
+const intrusionCountDisplay = document.getElementById('intrusionCount');
+const timeDisplay = document.getElementById('timeDisplay');
+const statusDisplay = document.getElementById('statusDisplay');
+const progressCircle = document.querySelector('.progress-ring__circle');
+const notificationSound = document.getElementById('notificationSound');
+const stopEarlyBtn = document.getElementById('stopEarlyBtn');
+
+const DURATION_MS = 25 * 60 * 1000;
+const CIRCUMFERENCE = 2 * Math.PI * 45; // ~282.7
+
+let state = 'idle'; // 'idle', 'running', 'paused', 'completed'
+let elapsedMs = 0;
+let sessionEndTime = null;
+let animationFrameId = null;
+let currentSessionId = null;
+let interruptionCount = 0;
+let patchInFlight = false; // Prevent race conditions
+
+progressCircle.style.strokeDasharray = CIRCUMFERENCE;
+progressCircle.style.strokeDashoffset = 0;
+
+// Load from local storage
+async function loadState() {
+    const savedState = localStorage.getItem('focusTimer_state');
+    if (savedState) {
+        state = savedState;
+        elapsedMs = parseInt(localStorage.getItem('focusTimer_elapsedMs'), 10) || 0;
+        const savedEndTime = localStorage.getItem('focusTimer_sessionEndTime');
+        sessionEndTime = savedEndTime ? parseInt(savedEndTime, 10) : null;
+        currentSessionId = localStorage.getItem('focusTimer_sessionId');
+        interruptionCount = parseInt(localStorage.getItem('focusTimer_interruptionCount'), 10) || 0;
+        updateIntrusionCountUI();
+        
+        if (state === 'running') {
+            tick();
+        } else {
+            updateUI(state === 'completed' ? 0 : DURATION_MS - elapsedMs);
+        }
+    } else {
+        updateUI(DURATION_MS);
+    }
+
+    // Verify button state with server
+    try {
+        const res = await fetch('/sessions?status=running');
+        if (res.ok) {
+            const data = await res.json();
+            const serverIsRunning = data.length > 0;
+            
+            if (serverIsRunning) {
+                const serverSession = data[0];
+                if (state !== 'running' || currentSessionId != serverSession.sessionID) {
+                    state = 'running';
+                    currentSessionId = serverSession.sessionID;
+                    if (!sessionEndTime) {
+                        sessionEndTime = Date.now() + DURATION_MS;
+                        elapsedMs = 0;
+                    }
+                    saveState();
+                    tick();
+                }
+            } else {
+                if (state === 'running') {
+                    // Server has no running session; fix local state
+                    state = 'paused'; 
+                    if (animationFrameId) {
+                        cancelAnimationFrame(animationFrameId);
+                        animationFrameId = null;
+                    }
+                    saveState();
+                    updateUI(DURATION_MS - (sessionEndTime ? sessionEndTime - Date.now() : 0));
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Server sync failed:", e);
+    }
+}
+
+function saveState() {
+    localStorage.setItem('focusTimer_state', state);
+    localStorage.setItem('focusTimer_elapsedMs', elapsedMs.toString());
+    if (sessionEndTime) {
+        localStorage.setItem('focusTimer_sessionEndTime', sessionEndTime.toString());
+    } else {
+        localStorage.removeItem('focusTimer_sessionEndTime');
+    }
+    if (currentSessionId) {
+        localStorage.setItem('focusTimer_sessionId', currentSessionId.toString());
+    } else {
+        localStorage.removeItem('focusTimer_sessionId');
+    }
+    localStorage.setItem('focusTimer_interruptionCount', interruptionCount.toString());
+}
+
+function updateIntrusionCountUI() {
+    if (interruptionCount > 0) {
+        intrusionCountDisplay.style.display = 'inline-block';
+        intrusionCountDisplay.textContent = interruptionCount;
+    } else {
+        intrusionCountDisplay.style.display = 'none';
+        intrusionCountDisplay.textContent = '0';
+    }
+}
+
+function formatTime(ms) {
+    const totalSeconds = Math.ceil(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function updateUI(remainingMs) {
+    const timeStr = formatTime(remainingMs);
+    timeDisplay.textContent = timeStr;
+    statusDisplay.textContent = state;
+    
+    if (state === 'running' || state === 'paused') {
+        document.title = `${timeStr} - Focus Timer`;
+    } else {
+        document.title = "Resilient Focus Timer";
+    }
+    
+    const progress = (DURATION_MS - remainingMs) / DURATION_MS;
+    const offset = progress * CIRCUMFERENCE;
+    progressCircle.style.strokeDashoffset = offset;
+    
+    if (state === 'paused') {
+        progressCircle.classList.add('paused');
+    } else {
+        progressCircle.classList.remove('paused');
+    }
+
+    if (state === 'idle') {
+        actionBtn.textContent = 'Start Timer';
+        intrusionBtn.disabled = true;
+        if (stopEarlyBtn) stopEarlyBtn.style.display = 'none';
+    } else if (state === 'running') {
+        actionBtn.textContent = 'Pause';
+        intrusionBtn.disabled = false;
+        if (stopEarlyBtn) stopEarlyBtn.style.display = 'inline-block';
+    } else if (state === 'paused') {
+        actionBtn.textContent = 'Resume';
+        intrusionBtn.disabled = true;
+        if (stopEarlyBtn) stopEarlyBtn.style.display = 'inline-block';
+    } else if (state === 'completed') {
+        actionBtn.textContent = 'Start New';
+        intrusionBtn.disabled = true;
+        if (stopEarlyBtn) stopEarlyBtn.style.display = 'none';
+    }
+}
+
+function tick() {
+    if (state !== 'running') return;
+
+    const now = Date.now();
+    let remainingMs = sessionEndTime - now;
+
+    if (remainingMs <= 0) {
+        remainingMs = 0;
+        completeSession();
+    } else {
+        updateUI(remainingMs);
+        animationFrameId = requestAnimationFrame(tick);
+    }
+}
+
+async function startTimer() {
+    // If starting a fresh session
+    if (state === 'idle' || state === 'completed') {
+        const startTimeIso = new Date().toISOString();
+        
+        try {
+            const res = await fetch('/sessions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ start_time: startTimeIso })
+            });
+            const data = await res.json();
+            
+            if (res.status === 409) {
+                alert("A session is already running on this server. Please complete or stop it first.");
+                return;
+            } else if (!res.ok) {
+                console.error("Error creating session:", data);
+                return;
+            }
+            
+            currentSessionId = data.sessionID;
+            elapsedMs = 0;
+        } catch (e) {
+            console.error("Failed to reach server:", e);
+            return;
+        }
+    } else if (state === 'paused') {
+        // Resuming from pause
+        try {
+            const res = await fetch(`/sessions/${currentSessionId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'running' })
+            });
+            if (!res.ok) {
+                console.error("Error resuming session");
+                return;
+            }
+        } catch (e) {
+            console.error("Failed to reach server:", e);
+            return;
+        }
+    }
+
+    state = 'running';
+    sessionEndTime = Date.now() + DURATION_MS - elapsedMs;
+    saveState();
+    updateUI(DURATION_MS - elapsedMs);
+    tick();
+}
+
+async function pauseTimer() {
+    state = 'paused';
+    // Freeze elapsed time accurately based on Date.now()
+    elapsedMs = DURATION_MS - (sessionEndTime - Date.now());
+    if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
+    saveState();
+    updateUI(DURATION_MS - elapsedMs);
+    
+    try {
+        await fetch(`/sessions/${currentSessionId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'paused' })
+        });
+    } catch (e) {
+        console.error("Failed to pause session on server:", e);
+    }
+}
+
+async function completeSession() {
+    // Prevent double-firing race condition
+    if (state === 'completed' || patchInFlight) return;
+    
+    patchInFlight = true;
+    state = 'completed';
+    if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
+    saveState();
+    
+    // Attempt to play sound
+    try {
+        await notificationSound.play();
+    } catch (e) {
+        console.log('Audio play failed', e);
+    }
+    
+    if ("Notification" in window && Notification.permission === "granted") {
+        try {
+            new Notification("Focus session complete!");
+        } catch (e) {
+            console.error("Desktop notification failed", e);
+            showFallbackBanner();
+        }
+    } else {
+        showFallbackBanner();
+    }
+
+    updateUI(0);
+    
+    const trueEndTime = new Date(sessionEndTime || Date.now());
+    const endTimeIso = trueEndTime.toISOString().split('T')[1].split('.')[0];
+    const durationMins = 25;
+
+    try {
+        await fetch(`/sessions/${currentSessionId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                status: 'completed',
+                end_time: endTimeIso,
+                duration: durationMins
+            })
+        });
+    } catch (e) {
+        console.error("Failed to complete session on server:", e);
+    } finally {
+        patchInFlight = false;
+    }
+}
+
+function resetTimer() {
+    state = 'idle';
+    elapsedMs = 0;
+    sessionEndTime = null;
+    currentSessionId = null;
+    interruptionCount = 0;
+    updateIntrusionCountUI();
+    saveState();
+    updateUI(DURATION_MS);
+}
+
+let audioUnlocked = false;
+
+actionBtn.addEventListener('click', async () => {
+    if (!audioUnlocked) {
+        // Unlock audio on first user interaction to bypass autoplay restrictions
+        notificationSound.play().catch(() => {});
+        notificationSound.pause();
+        notificationSound.currentTime = 0;
+        audioUnlocked = true;
+    }
+    
+    if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission().catch(e => console.error("Notification permission request failed", e));
+    }
+    
+    actionBtn.disabled = true;
+    try {
+        if (state === 'idle' || state === 'completed') {
+            if (state === 'completed') resetTimer();
+            await startTimer();
+        } else if (state === 'running') {
+            await pauseTimer();
+        } else if (state === 'paused') {
+            await startTimer(); // Actually it resumes
+        }
+    } finally {
+        actionBtn.disabled = false;
+    }
+});
+
+function showToast(message, isError = false) {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = 'toast' + (isError ? ' error' : '');
+    toast.textContent = message;
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 1500);
+}
+
+if (stopEarlyBtn) {
+    stopEarlyBtn.addEventListener('click', async () => {
+        if (!currentSessionId || (state !== 'running' && state !== 'paused')) return;
+        
+        stopEarlyBtn.disabled = true;
+        try {
+            const trueEndTime = new Date();
+            const endTimeIso = trueEndTime.toISOString().split('T')[1].split('.')[0];
+            const durationMins = Math.floor(elapsedMs / (60 * 1000));
+            
+            const res = await fetch(`/sessions/${currentSessionId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    status: 'stopped_early',
+                    end_time: endTimeIso,
+                    duration: durationMins
+                })
+            });
+            
+            if (res.ok) {
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
+                resetTimer();
+            } else {
+                console.error("Failed to stop early:", await res.json());
+                showToast("Failed to stop session early", true);
+            }
+        } catch (e) {
+            console.error("Failed to reach server to stop early:", e);
+            showToast("Network error: Failed to stop early", true);
+        } finally {
+            stopEarlyBtn.disabled = false;
+        }
+    });
+}
+
+let intrusionInFlight = false;
+intrusionBtn.addEventListener('click', async () => {
+    if (state !== 'running' || !currentSessionId || intrusionInFlight) return;
+    
+    intrusionInFlight = true;
+    setTimeout(() => { intrusionInFlight = false; }, 500);
+
+    const timestampIso = new Date().toISOString();
+    try {
+        const res = await fetch(`/sessions/${currentSessionId}/interruptions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timestamp: timestampIso })
+        });
+        if (!res.ok) {
+            console.error("Failed to log intrusion:", await res.json());
+            showToast("Failed to log interruption", true);
+        } else {
+            interruptionCount++;
+            updateIntrusionCountUI();
+            saveState();
+            showToast("Interruption logged");
+        }
+    } catch (e) {
+        console.error("Failed to reach server for intrusion logging:", e);
+        showToast("Network error: Failed to log interruption", true);
+    }
+});
+
+// Handle visibility changes to resync the timer when returning to tab
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && state === 'running') {
+        tick();
+    }
+});
+
+// Update title while backgrounded (since requestAnimationFrame pauses)
+setInterval(() => {
+    if (document.visibilityState === 'hidden' && state === 'running') {
+        const now = Date.now();
+        let remainingMs = sessionEndTime - now;
+        if (remainingMs <= 0) {
+            remainingMs = 0;
+            completeSession();
+        } else {
+            const timeStr = formatTime(remainingMs);
+            document.title = `${timeStr} - Focus Timer`;
+        }
+    }
+}, 1000);
+
+// Initialize UI from local storage
+loadState();
+
+function showFallbackBanner() {
+    let banner = document.getElementById('completionBanner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'completionBanner';
+        banner.className = 'completion-banner';
+        banner.innerHTML = `
+            <span>Focus session complete!</span>
+            <button onclick="this.parentElement.remove()">Dismiss</button>
+        `;
+        document.body.appendChild(banner);
+    }
+}
