@@ -166,6 +166,22 @@ def update_session(session_id):
     end_time = data.get('end_time', session['end_time'])
     duration = data.get('duration', session['duration'])
 
+    if end_time and session['start_time']:
+        try:
+            start_t = datetime.strptime(session['start_time'], '%H:%M:%S')
+            end_t = datetime.strptime(end_time, '%H:%M:%S')
+            diff = (end_t - start_t).total_seconds()
+            if diff < 0:
+                diff += 24 * 3600 # Account for midnight crossing
+            
+            # If the calculated duration is suspiciously large (e.g. > 12 hours),
+            # it means end_time was actually earlier in the day (stale completion bug)
+            if diff > 12 * 3600:
+                conn.close()
+                return jsonify({'error': 'end_time cannot be earlier than start_time'}), 400
+        except ValueError:
+            pass
+
     cursor.execute(
         "UPDATE Session SET status = ?, end_time = ?, duration = ? WHERE SessionID = ?",
         (new_status, end_time, duration, session_id)

@@ -169,8 +169,12 @@ function tick() {
 }
 
 async function startTimer() {
+    const initialState = state;
+    const sessionIdToResume = currentSessionId;
+    const elapsedMsToResume = elapsedMs;
+
     // If starting a fresh session
-    if (state === 'idle' || state === 'completed') {
+    if (initialState === 'idle' || initialState === 'completed') {
         const startTimeIso = new Date().toISOString();
         
         try {
@@ -195,10 +199,10 @@ async function startTimer() {
             console.error("Failed to reach server:", e);
             return;
         }
-    } else if (state === 'paused') {
+    } else if (initialState === 'paused') {
         // Resuming from pause
         try {
-            const res = await fetch(`/sessions/${currentSessionId}`, {
+            const res = await fetch(`/sessions/${sessionIdToResume}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: 'running' })
@@ -214,16 +218,19 @@ async function startTimer() {
     }
 
     state = 'running';
-    sessionEndTime = Date.now() + DURATION_MS - elapsedMs;
+    sessionEndTime = Date.now() + DURATION_MS - (initialState === 'paused' ? elapsedMsToResume : 0);
     saveState();
-    updateUI(DURATION_MS - elapsedMs);
+    updateUI(DURATION_MS - (initialState === 'paused' ? elapsedMsToResume : 0));
     tick();
 }
 
 async function pauseTimer() {
+    const sessionIdToPause = currentSessionId;
+    const endTimeToPause = sessionEndTime;
+
     state = 'paused';
     // Freeze elapsed time accurately based on Date.now()
-    elapsedMs = DURATION_MS - (sessionEndTime - Date.now());
+    elapsedMs = DURATION_MS - (endTimeToPause - Date.now());
     if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
@@ -232,7 +239,7 @@ async function pauseTimer() {
     updateUI(DURATION_MS - elapsedMs);
     
     try {
-        await fetch(`/sessions/${currentSessionId}`, {
+        await fetch(`/sessions/${sessionIdToPause}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'paused' })
@@ -243,9 +250,13 @@ async function pauseTimer() {
 }
 
 async function completeSession() {
-    // Prevent double-firing race condition
     if (state === 'completed' || patchInFlight) return;
-    
+
+    // Capture immediately, before any await — prevents a stale/delayed
+    // call from later targeting a different session if globals change.
+    const sessionIdToComplete = currentSessionId;
+    const endTimeToRecord = new Date(sessionEndTime || Date.now());
+
     patchInFlight = true;
     state = 'completed';
     if (animationFrameId) {
@@ -274,12 +285,11 @@ async function completeSession() {
 
     updateUI(0);
     
-    const trueEndTime = new Date(sessionEndTime || Date.now());
-    const endTimeIso = trueEndTime.toISOString().split('T')[1].split('.')[0];
+    const endTimeIso = endTimeToRecord.toISOString().split('T')[1].split('.')[0];
     const durationMins = 25;
 
     try {
-        await fetch(`/sessions/${currentSessionId}`, {
+        await fetch(`/sessions/${sessionIdToComplete}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -358,13 +368,16 @@ if (stopEarlyBtn) {
     stopEarlyBtn.addEventListener('click', async () => {
         if (!currentSessionId || (state !== 'running' && state !== 'paused')) return;
         
+        const sessionIdToStop = currentSessionId;
+        const elapsedMsToStop = elapsedMs;
+
         stopEarlyBtn.disabled = true;
         try {
             const trueEndTime = new Date();
             const endTimeIso = trueEndTime.toISOString().split('T')[1].split('.')[0];
-            const durationMins = Math.floor(elapsedMs / (60 * 1000));
+            const durationMins = Math.floor(elapsedMsToStop / (60 * 1000));
             
-            const res = await fetch(`/sessions/${currentSessionId}`, {
+            const res = await fetch(`/sessions/${sessionIdToStop}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -397,12 +410,14 @@ let intrusionInFlight = false;
 intrusionBtn.addEventListener('click', async () => {
     if (state !== 'running' || !currentSessionId || intrusionInFlight) return;
     
+    const sessionIdToInterrupt = currentSessionId;
+
     intrusionInFlight = true;
     setTimeout(() => { intrusionInFlight = false; }, 500);
 
     const timestampIso = new Date().toISOString();
     try {
-        const res = await fetch(`/sessions/${currentSessionId}/interruptions`, {
+        const res = await fetch(`/sessions/${sessionIdToInterrupt}/interruptions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ timestamp: timestampIso })
