@@ -4,6 +4,12 @@ import sqlite3
 from playwright.sync_api import sync_playwright
 import sys
 
+import os
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+APP_PATH = os.path.join(BASE_DIR, 'app.py')
+DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
+
+
 def setup_db():
     conn = sqlite3.connect('focus_timer.db')
     cursor = conn.cursor()
@@ -14,7 +20,7 @@ def setup_db():
 
 def run_tests():
     print("Starting Flask server for E2E tests...")
-    server = subprocess.Popen([sys.executable, 'app.py'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    server = subprocess.Popen([sys.executable, APP_PATH], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2)
     
     try:

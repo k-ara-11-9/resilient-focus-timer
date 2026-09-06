@@ -3,7 +3,13 @@ import time
 import requests
 import sys
 
-server = subprocess.Popen([sys.executable, 'app.py'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+import os
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+APP_PATH = os.path.join(BASE_DIR, 'app.py')
+DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
+
+
+server = subprocess.Popen([sys.executable, APP_PATH], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(2)
 
 try:

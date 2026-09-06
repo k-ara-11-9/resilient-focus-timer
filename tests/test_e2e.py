@@ -2,17 +2,23 @@ import subprocess
 import time
 from playwright.sync_api import sync_playwright
 import sys
+import os
+import sqlite3
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+APP_PATH = os.path.join(BASE_DIR, 'app.py')
+DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
 def run_tests():
-    import sqlite3
     conn = sqlite3.connect('focus_timer.db')
     cursor = conn.cursor()
+    cursor.execute("DELETE FROM Interruption")
     cursor.execute("DELETE FROM Session")
     conn.commit()
     conn.close()
 
     print("Starting Flask server for E2E tests...")
-    server = subprocess.Popen([sys.executable, 'app.py'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    server = subprocess.Popen([sys.executable, APP_PATH], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2) # wait for server to start
     
     with sync_playwright() as p:
