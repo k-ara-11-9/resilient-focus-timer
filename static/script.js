@@ -55,8 +55,9 @@ async function loadState() {
                     state = 'running';
                     currentSessionId = serverSession.sessionID;
                     if (!sessionEndTime) {
-                        sessionEndTime = Date.now() + DURATION_MS;
-                        elapsedMs = 0;
+                        const startTimestamp = new Date(`${serverSession.date}T${serverSession.start_time}Z`).getTime();
+                        sessionEndTime = startTimestamp + DURATION_MS;
+                        elapsedMs = Date.now() - startTimestamp;
                     }
                     saveState();
                     tick();

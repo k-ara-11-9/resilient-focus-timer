@@ -38,13 +38,14 @@ def get_sessions():
     cursor = conn.cursor()
     
     if status_filter == 'running':
-        cursor.execute("SELECT SessionID, start_time, status FROM Session WHERE status = 'running'")
+        cursor.execute("SELECT SessionID, date, start_time, status FROM Session WHERE status = 'running'")
         session = cursor.fetchone()
         conn.close()
         
         if session:
             return jsonify([{
                 'sessionID': session['SessionID'],
+                'date': session['date'],
                 'start_time': session['start_time'],
                 'status': session['status']
             }]), 200
