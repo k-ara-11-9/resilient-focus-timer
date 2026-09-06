@@ -1,4 +1,2 @@
 Flask
 flask-cors
-playwright
-requests

@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build check (import app.py)
+        run: python -c "import app"
+
+      - name: Install lint dependency
+        run: pip install flake8
+
+      - name: Lint (app.py, migrate.py, tests/)
+        run: flake8 app.py migrate.py tests/ --max-line-length=120 --extend-ignore=E501,E402 --exit-zero
