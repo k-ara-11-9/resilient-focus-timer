@@ -20,7 +20,8 @@ resilient-focus-timer/
 ├── static/
 │   ├── script.js            # Timer logic, interruption logging, notifications
 │   ├── history.js           # Session history rendering
-│   └── style.css
+│   ├── style.css
+│   └── notification.mp3
 │
 ├── templates/
 │   ├── index.html            # Main Timer screen
@@ -31,6 +32,9 @@ resilient-focus-timer/
 │   ├── test_e2e_tm02.py      # Intrusion logging flow
 │   ├── test_e2e_lg01.py      # Session history flow
 │   ├── test_e2e_sy01.py      # Local-only storage verification
+│   ├── test_e2e_race.py
+│   ├── test_e2e_resync.py
+│   ├── test_e2e_recovery.py
 │   ├── test_get_history.py
 │   └── clean.py              # Dev utility: wipes all session/interruption data
 │
@@ -128,6 +132,7 @@ python tests/test_e2e.py
 - The countdown is timestamp-based (comparing the current time against a stored end-timestamp), not a simple decrementing counter — this keeps it accurate even if the browser tab is backgrounded.
 - `User` currently has no attributes beyond its primary key. The app is effectively single-user for Sprint 1; multi-user support would be a future story.
 - `duration` is currently fixed at 25 minutes for completed sessions, since Sprint 1's only flow is a fixed-length Pomodoro.
+- Post-release hardening addressed several multi-device edge cases: a session-recovery calculation bug, a race condition in delayed completion requests, and stale client state when a session is ended from a different device. See docs/ for details.
 
 ---
 
@@ -139,6 +144,7 @@ This release covers Sprint 1's Must-have stories only. The following are deliber
 - **No cloud sync.** Data is stored locally in SQLite only (`SY-01`). Multi-device sync (`SY-02`) is a planned future story, not yet implemented.
 - **Fixed 25-minute sessions.** `duration` is not yet configurable or dynamically computed for partial sessions — every completed session is recorded as 25 minutes by design.
 - **Development server only.** The app currently runs on Flask's built-in development server, which is not intended for production traffic. A production WSGI server (e.g. gunicorn) would be the next step for a public, multi-user deployment.
+- **The live interruption counter is per-device, not per-session.** It tracks clicks made on the current device only and does not sync in real time across devices sharing the same session. The final count shown in History is always accurate, computed directly from stored data — only the live on-screen badge during an active session can under-count in a multi-device scenario.
 
 ---
 
