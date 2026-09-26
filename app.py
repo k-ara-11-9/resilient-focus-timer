@@ -359,12 +359,109 @@ def get_interruptions(session_id):
         conn.close()
         return jsonify({'error': 'forbidden'}), 403
         
-    cursor.execute("SELECT InterruptionID, timestamp FROM Interruption WHERE SessionID = ?", (session_id,))
+    cursor.execute("SELECT InterruptionID, timestamp FROM Interruption WHERE SessionID = ? ORDER BY timestamp ASC", (session_id,))
     rows = cursor.fetchall()
     conn.close()
     
     interruptions = [{'interruptionID': r['InterruptionID'], 'timestamp': r['timestamp']} for r in rows]
     return jsonify(interruptions), 200
+
+@app.route('/analytics/daily', methods=['GET'])
+@login_required
+def analytics_daily():
+    user_id = session['user_id']
+    start_date_str = request.args.get('start')
+    end_date_str = request.args.get('end')
+    
+    from datetime import datetime, timedelta, date
+
+    def parse_date(date_text):
+        try:
+            return datetime.strptime(date_text, '%Y-%m-%d').date()
+        except ValueError:
+            return None
+
+    if start_date_str or end_date_str:
+        if not start_date_str or not end_date_str:
+             return jsonify({'error': 'start and end must be YYYY-MM-DD'}), 400
+        start_date = parse_date(start_date_str)
+        end_date = parse_date(end_date_str)
+        if not start_date or not end_date:
+            return jsonify({'error': 'start and end must be YYYY-MM-DD'}), 400
+    else:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=6)
+        
+    if start_date > end_date:
+        return jsonify({'error': 'start must be before end'}), 400
+        
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        import zoneinfo
+        ist_tz = zoneinfo.ZoneInfo('Asia/Kolkata')
+        
+        # Widen the date range by 1 day on both sides for the DB query to catch timezone boundary overlaps
+        db_start_date = start_date - timedelta(days=1)
+        db_end_date = end_date + timedelta(days=1)
+        
+        cursor.execute("""
+            SELECT s.date, s.start_time, s.SessionID, s.duration,
+                   COUNT(i.InterruptionID) as interruption_count
+            FROM Session s
+            LEFT JOIN Interruption i ON s.SessionID = i.SessionID
+            WHERE s.user_id = ? AND s.date >= ? AND s.date <= ?
+            GROUP BY s.SessionID
+        """, (user_id, db_start_date.strftime('%Y-%m-%d'), db_end_date.strftime('%Y-%m-%d')))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        from collections import defaultdict
+        daily_stats = defaultdict(lambda: {'focus_minutes': 0, 'interruptions': 0})
+        
+        for row in rows:
+            date_str = row['date']
+            time_str = row['start_time']
+            try:
+                # Try to combine date and time. Assume stored timestamp is UTC.
+                dt = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M:%S')
+                dt = dt.replace(tzinfo=zoneinfo.ZoneInfo('UTC'))
+                ist_dt = dt.astimezone(ist_tz)
+                day = ist_dt.date()
+            except ValueError:
+                # Fallback if time_str is not HH:MM:SS
+                try:
+                    day = datetime.strptime(date_str, '%Y-%m-%d').date()
+                except ValueError:
+                    continue
+            
+            if not (start_date <= day <= end_date):
+                continue
+            
+            day_str = day.strftime('%Y-%m-%d')
+            duration_secs = row['duration'] if row['duration'] else 0
+            focus_minutes = duration_secs // 60
+            interruptions = row['interruption_count']
+            
+            daily_stats[day_str]['focus_minutes'] += focus_minutes
+            daily_stats[day_str]['interruptions'] += interruptions
+            
+        result = []
+        current_date = start_date
+        while current_date <= end_date:
+            day_str = current_date.strftime('%Y-%m-%d')
+            result.append({
+                'date': day_str,
+                'focus_minutes': daily_stats[day_str]['focus_minutes'],
+                'interruptions': daily_stats[day_str]['interruptions']
+            })
+            current_date += timedelta(days=1)
+            
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': 'Database error occurred'}), 500
 
 @app.route('/history')
 def history():
