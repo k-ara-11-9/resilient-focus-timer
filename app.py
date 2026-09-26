@@ -1,11 +1,14 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime
 import os
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 
 app = Flask(__name__)
-CORS(app) # Enable CORS for frontend
+app.secret_key = os.environ.get('SECRET_KEY', 'dev_secret_key')
+CORS(app, supports_credentials=True) # Enable CORS for frontend
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_NAME = os.path.join(BASE_DIR, 'focus_timer.db')
@@ -16,11 +19,72 @@ def get_db():
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'error': 'authentication required'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/auth/signup', methods=['POST'])
+def signup():
+    data = request.get_json()
+    if not data or not all(k in data for k in ('username', 'email', 'password')):
+        missing = [k for k in ('username', 'email', 'password') if not data or k not in data]
+        return jsonify({'error': f'Missing required fields: {", ".join(missing)}'}), 400
+
+    username = data['username']
+    email = data['email']
+    password = data['password']
+    password_hash = generate_password_hash(password)
+
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO User (username, email, password_hash) VALUES (?, ?, ?)",
+                       (username, email, password_hash))
+        conn.commit()
+        user_id = cursor.lastrowid
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({'error': 'username or email already taken'}), 409
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+    
+    conn.close()
+    session['user_id'] = user_id
+    return jsonify({'message': 'User created successfully', 'user_id': user_id}), 201
+
+@app.route('/auth/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    if not data or not all(k in data for k in ('username', 'password')):
+        return jsonify({'error': 'Missing username or password'}), 400
+
+    username = data['username']
+    password = data['password']
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, password_hash FROM User WHERE username = ?", (username,))
+    user = cursor.fetchone()
+    conn.close()
+
+    if user and check_password_hash(user['password_hash'], password):
+        session['user_id'] = user['id']
+        return jsonify({'message': 'Logged in successfully'}), 200
+    else:
+        return jsonify({'error': 'invalid credentials'}), 401
+
 @app.route('/sessions', methods=['GET'])
+@login_required
 def get_sessions():
     status_filter = request.args.get('status')
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
+    user_id = session['user_id']
     
     import datetime
     def validate_date(date_text):
@@ -38,16 +102,16 @@ def get_sessions():
     cursor = conn.cursor()
     
     if status_filter == 'running':
-        cursor.execute("SELECT SessionID, date, start_time, status FROM Session WHERE status = 'running'")
-        session = cursor.fetchone()
+        cursor.execute("SELECT SessionID, date, start_time, status FROM Session WHERE status = 'running' AND user_id = ?", (user_id,))
+        sess = cursor.fetchone()
         conn.close()
         
-        if session:
+        if sess:
             return jsonify([{
-                'sessionID': session['SessionID'],
-                'date': session['date'],
-                'start_time': session['start_time'],
-                'status': session['status']
+                'sessionID': sess['SessionID'],
+                'date': sess['date'],
+                'start_time': sess['start_time'],
+                'status': sess['status']
             }]), 200
         else:
             return jsonify([]), 200
@@ -58,9 +122,9 @@ def get_sessions():
                COUNT(i.InterruptionID) as interruption_count
         FROM Session s
         LEFT JOIN Interruption i ON s.SessionID = i.SessionID
-        WHERE s.status = 'completed'
+        WHERE s.status = 'completed' AND s.user_id = ?
     """
-    params = []
+    params = [user_id]
 
     if date_from:
         query += " AND s.date >= ?"
@@ -89,36 +153,40 @@ def get_sessions():
     return jsonify(sessions), 200
 
 @app.route('/sessions', methods=['POST'])
+@login_required
 def create_session():
     data = request.get_json()
     if not data or 'start_time' not in data:
         return jsonify({'error': 'start_time is required'}), 400
 
     start_time_raw = data['start_time']
+    user_id = session['user_id']
     
     try:
         # Attempt to parse as ISO datetime
-        dt = datetime.fromisoformat(start_time_raw.replace('Z', '+00:00'))
+        from datetime import datetime as dt_module
+        dt = dt_module.fromisoformat(start_time_raw.replace('Z', '+00:00'))
         date_part = dt.strftime('%Y-%m-%d')
         time_part = dt.strftime('%H:%M:%S')
     except ValueError:
         # Fallback if just time is provided
-        date_part = datetime.now().strftime('%Y-%m-%d')
+        from datetime import datetime as dt_module
+        date_part = dt_module.now().strftime('%Y-%m-%d')
         time_part = start_time_raw
 
     conn = get_db()
     cursor = conn.cursor()
 
     # Check if a running session already exists
-    cursor.execute("SELECT SessionID FROM Session WHERE status = 'running'")
+    cursor.execute("SELECT SessionID FROM Session WHERE status = 'running' AND user_id = ?", (user_id,))
     if cursor.fetchone() is not None:
         conn.close()
         return jsonify({'error': 'A running session already exists'}), 409
 
     # Insert new session
     cursor.execute(
-        "INSERT INTO Session (date, start_time, status) VALUES (?, ?, ?)",
-        (date_part, time_part, 'running')
+        "INSERT INTO Session (date, start_time, status, user_id) VALUES (?, ?, ?, ?)",
+        (date_part, time_part, 'running', user_id)
     )
     session_id = cursor.lastrowid
     conn.commit()
@@ -131,27 +199,33 @@ def create_session():
     }), 201
 
 @app.route('/sessions/<int:session_id>', methods=['GET'])
+@login_required
 def get_session(session_id):
+    user_id = session['user_id']
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM Session WHERE SessionID = ?", (session_id,))
-    session = cursor.fetchone()
+    sess = cursor.fetchone()
     conn.close()
 
-    if session:
+    if sess:
+        if sess['user_id'] != user_id:
+            return jsonify({'error': 'forbidden'}), 403
         return jsonify({
-            'sessionID': session['SessionID'],
-            'date': session['date'],
-            'start_time': session['start_time'],
-            'end_time': session['end_time'],
-            'duration': session['duration'],
-            'status': session['status']
+            'sessionID': sess['SessionID'],
+            'date': sess['date'],
+            'start_time': sess['start_time'],
+            'end_time': sess['end_time'],
+            'duration': sess['duration'],
+            'status': sess['status']
         }), 200
     else:
         return jsonify({'error': 'Session not found'}), 404
 
 @app.route('/sessions/<int:session_id>', methods=['PATCH'])
+@login_required
 def update_session(session_id):
+    user_id = session['user_id']
     data = request.get_json()
     if not data or 'status' not in data:
         return jsonify({'error': 'status is required'}), 400
@@ -165,13 +239,17 @@ def update_session(session_id):
 
     # Get current session
     cursor.execute("SELECT * FROM Session WHERE SessionID = ?", (session_id,))
-    session = cursor.fetchone()
+    sess = cursor.fetchone()
 
-    if not session:
+    if not sess:
         conn.close()
         return jsonify({'error': 'Session not found'}), 404
 
-    current_status = session['status']
+    if sess['user_id'] != user_id:
+        conn.close()
+        return jsonify({'error': 'forbidden'}), 403
+
+    current_status = sess['status']
 
     # Validate transition
     if current_status in ['completed', 'stopped_early']:
@@ -183,13 +261,14 @@ def update_session(session_id):
         return jsonify({'error': f'Session is already {new_status}'}), 409
 
     # Update session
-    end_time = data.get('end_time', session['end_time'])
-    duration = data.get('duration', session['duration'])
+    end_time = data.get('end_time', sess['end_time'])
+    duration = data.get('duration', sess['duration'])
 
-    if end_time and session['start_time']:
+    if end_time and sess['start_time']:
         try:
-            start_t = datetime.strptime(session['start_time'], '%H:%M:%S')
-            end_t = datetime.strptime(end_time, '%H:%M:%S')
+            from datetime import datetime as dt_module
+            start_t = dt_module.strptime(sess['start_time'], '%H:%M:%S')
+            end_t = dt_module.strptime(end_time, '%H:%M:%S')
             diff = (end_t - start_t).total_seconds()
             if diff < 0:
                 diff += 24 * 3600 # Account for midnight crossing
@@ -221,7 +300,9 @@ def update_session(session_id):
     }), 200
 
 @app.route('/sessions/<int:session_id>/interruptions', methods=['POST'])
+@login_required
 def log_interruption(session_id):
+    user_id = session['user_id']
     data = request.get_json()
     if not data or 'timestamp' not in data:
         return jsonify({'error': 'timestamp is required'}), 400
@@ -232,21 +313,25 @@ def log_interruption(session_id):
     cursor = conn.cursor()
 
     # Verify session exists and is running
-    cursor.execute("SELECT status FROM Session WHERE SessionID = ?", (session_id,))
-    session = cursor.fetchone()
+    cursor.execute("SELECT status, user_id FROM Session WHERE SessionID = ?", (session_id,))
+    sess = cursor.fetchone()
 
-    if not session:
+    if not sess:
         conn.close()
         return jsonify({'error': 'Session not found'}), 404
 
-    if session['status'] != 'running':
+    if sess['user_id'] != user_id:
+        conn.close()
+        return jsonify({'error': 'forbidden'}), 403
+
+    if sess['status'] != 'running':
         conn.close()
         return jsonify({'error': 'Cannot log interruption for a non-running session'}), 409
 
     # Insert interruption
     cursor.execute(
-        "INSERT INTO Interruption (SessionID, timestamp) VALUES (?, ?)",
-        (session_id, timestamp)
+        "INSERT INTO Interruption (SessionID, timestamp, user_id) VALUES (?, ?, ?)",
+        (session_id, timestamp, user_id)
     )
     interruption_id = cursor.lastrowid
     conn.commit()
@@ -256,6 +341,30 @@ def log_interruption(session_id):
         'interruptionID': interruption_id,
         'timestamp': timestamp
     }), 201
+
+@app.route('/sessions/<int:session_id>/interruptions', methods=['GET'])
+@login_required
+def get_interruptions(session_id):
+    user_id = session['user_id']
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT user_id FROM Session WHERE SessionID = ?", (session_id,))
+    sess = cursor.fetchone()
+    if not sess:
+        conn.close()
+        return jsonify({'error': 'Session not found'}), 404
+        
+    if sess['user_id'] != user_id:
+        conn.close()
+        return jsonify({'error': 'forbidden'}), 403
+        
+    cursor.execute("SELECT InterruptionID, timestamp FROM Interruption WHERE SessionID = ?", (session_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    interruptions = [{'interruptionID': r['InterruptionID'], 'timestamp': r['timestamp']} for r in rows]
+    return jsonify(interruptions), 200
 
 @app.route('/history')
 def history():
