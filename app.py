@@ -463,6 +463,84 @@ def analytics_daily():
     except Exception as e:
         return jsonify({'error': 'Database error occurred'}), 500
 
+@app.route('/analytics/heatmap', methods=['GET'])
+@login_required
+def analytics_heatmap():
+    user_id = session['user_id']
+    start_date_str = request.args.get('start')
+    end_date_str = request.args.get('end')
+
+    from datetime import datetime, timedelta, date
+
+    def parse_date(date_text):
+        try:
+            return datetime.strptime(date_text, '%Y-%m-%d').date()
+        except ValueError:
+            return None
+
+    if start_date_str or end_date_str:
+        if not start_date_str or not end_date_str:
+            return jsonify({'error': 'start and end must be YYYY-MM-DD'}), 400
+        start_date = parse_date(start_date_str)
+        end_date = parse_date(end_date_str)
+        if not start_date or not end_date:
+            return jsonify({'error': 'start and end must be YYYY-MM-DD'}), 400
+    else:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=6)
+
+    if start_date > end_date:
+        return jsonify({'error': 'start must be before end'}), 400
+
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        import zoneinfo
+        ist_tz = zoneinfo.ZoneInfo('Asia/Kolkata')
+
+        # Widen the date range by 1 day on both sides to catch timezone boundary overlaps
+        db_start_date = start_date - timedelta(days=1)
+        db_end_date = end_date + timedelta(days=1)
+
+        cursor.execute("""
+            SELECT s.date, s.start_time
+            FROM Session s
+            WHERE s.user_id = ? AND s.date >= ? AND s.date <= ?
+        """, (user_id, db_start_date.strftime('%Y-%m-%d'), db_end_date.strftime('%Y-%m-%d')))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        hour_counts = [0] * 24
+
+        for row in rows:
+            date_str = row['date']
+            time_str = row['start_time']
+            try:
+                # Combine date and time, assume stored as UTC, convert to IST
+                dt = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M:%S')
+                dt = dt.replace(tzinfo=zoneinfo.ZoneInfo('UTC'))
+                ist_dt = dt.astimezone(ist_tz)
+                day = ist_dt.date()
+            except ValueError:
+                try:
+                    day = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    # Without a parseable time we can't determine the hour, skip
+                    continue
+                except ValueError:
+                    continue
+
+            if not (start_date <= day <= end_date):
+                continue
+
+            hour_counts[ist_dt.hour] += 1
+
+        result = [{'hour': h, 'count': hour_counts[h]} for h in range(24)]
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': 'Database error occurred'}), 500
+
 @app.route('/history')
 def history():
     return render_template('history.html')
