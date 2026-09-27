@@ -78,6 +78,11 @@ def login():
     else:
         return jsonify({'error': 'invalid credentials'}), 401
 
+@app.route('/auth/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({'message': 'Logged out successfully'}), 200
+
 @app.route('/sessions', methods=['GET'])
 @login_required
 def get_sessions():
@@ -466,6 +471,14 @@ def analytics_daily():
 @app.route('/history')
 def history():
     return render_template('history.html')
+
+@app.route('/login')
+def login_page():
+    return render_template('login.html')
+
+@app.route('/signup')
+def signup_page():
+    return render_template('signup.html')
 
 @app.route('/')
 def index():

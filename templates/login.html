@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Resilient Focus Timer</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>Focus timer</h1>
+        <nav>
+            <a href="/login" class="active">Login</a>
+            <a href="/signup">Signup</a>
+        </nav>
+    </header>
+    <div class="page-wrapper">
+        <div class="app-container" style="text-align: center;">
+            <h2>Login</h2>
+            <form id="loginForm" style="display: flex; flex-direction: column; gap: 16px; margin-top: 24px;">
+                <input type="text" id="username" placeholder="Username" required style="padding: 12px; border-radius: 8px; border: 1px solid #3d3432; background: #1a1514; color: white;">
+                <input type="password" id="password" placeholder="Password" required style="padding: 12px; border-radius: 8px; border: 1px solid #3d3432; background: #1a1514; color: white;">
+                <button type="submit" style="padding: 12px; border-radius: 8px; background: #ff9d76; color: #1a1514; font-weight: bold; border: none; cursor: pointer;">Log In</button>
+                <div id="errorMsg" style="color: #ff6b6b; font-size: 0.9rem; display: none;"></div>
+            </form>
+        </div>
+    </div>
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.style.display = 'none';
+
+            try {
+                const res = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'include'
+                });
+                
+                if (res.ok) {
+                    window.location.href = '/';
+                } else {
+                    const data = await res.json();
+                    errorMsg.textContent = data.error || 'Login failed';
+                    errorMsg.style.display = 'block';
+                }
+            } catch (err) {
+                errorMsg.textContent = "can't reach server";
+                errorMsg.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>

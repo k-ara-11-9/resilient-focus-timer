@@ -12,13 +12,25 @@
         <nav>
             <a href="/">Timer</a>
             <a href="/history" class="active">History</a>
+            <a href="#" onclick="logout()">Logout</a>
         </nav>
     </header>
     <div class="page-wrapper">
         <div class="app-container">
             <main class="history-main">
+                <h2>Session History</h2>
                 <div id="historyList" class="history-list">
                     <div class="empty-state" id="loadingState">Loading...</div>
+                </div>
+
+                <h2 style="margin-top: 32px;">Daily Analytics</h2>
+                <div id="dailyAnalytics" style="background: #1a1a1a; padding: 16px; border-radius: 8px; border: 1px solid #333; margin-top: 16px;">
+                    <div class="empty-state">Loading...</div>
+                </div>
+
+                <h2 style="margin-top: 32px;">Heatmap Analytics</h2>
+                <div id="heatmapAnalytics" style="background: #1a1a1a; padding: 16px; border-radius: 8px; border: 1px solid #333; margin-top: 16px;">
+                    <div class="empty-state">Loading...</div>
                 </div>
             </main>
         </div>

@@ -44,7 +44,11 @@ async function loadState() {
 
     // Verify button state with server
     try {
-        const res = await fetch('/sessions?status=running');
+        const res = await fetch('/sessions?status=running', { credentials: 'include' });
+        if (res.status === 401) {
+            window.location.href = '/login';
+            return;
+        }
         if (res.ok) {
             const data = await res.json();
             const serverIsRunning = data.length > 0;
@@ -66,7 +70,8 @@ async function loadState() {
                 if (state === 'running') {
                     let legitimatelyEnded = false;
                     if (currentSessionId) {
-                        const sessionRes = await fetch(`/sessions/${currentSessionId}`);
+                        const sessionRes = await fetch(`/sessions/${currentSessionId}`, { credentials: 'include' });
+                        if (sessionRes.status === 401) { window.location.href = '/login'; return; }
                         if (sessionRes.ok) {
                             const sessionData = await sessionRes.json();
                             if (sessionData.status === 'completed' || sessionData.status === 'stopped_early') {
@@ -97,6 +102,7 @@ async function loadState() {
         }
     } catch (e) {
         console.error("Server sync failed:", e);
+        showToast("can't reach server", true);
     }
 }
 
@@ -201,8 +207,10 @@ async function startTimer() {
             const res = await fetch('/sessions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start_time: startTimeIso })
+                body: JSON.stringify({ start_time: startTimeIso }),
+                credentials: 'include'
             });
+            if (res.status === 401) { window.location.href = '/login'; return; }
             const data = await res.json();
             
             if (res.status === 409) {
@@ -217,6 +225,7 @@ async function startTimer() {
             elapsedMs = 0;
         } catch (e) {
             console.error("Failed to reach server:", e);
+            showToast("can't reach server", true);
             return;
         }
     } else if (initialState === 'paused') {
@@ -225,14 +234,17 @@ async function startTimer() {
             const res = await fetch(`/sessions/${sessionIdToResume}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'running' })
+                body: JSON.stringify({ status: 'running' }),
+                credentials: 'include'
             });
+            if (res.status === 401) { window.location.href = '/login'; return; }
             if (!res.ok) {
                 console.error("Error resuming session");
                 return;
             }
         } catch (e) {
             console.error("Failed to reach server:", e);
+            showToast("can't reach server", true);
             return;
         }
     }
@@ -259,13 +271,16 @@ async function pauseTimer() {
     updateUI(DURATION_MS - elapsedMs);
     
     try {
-        await fetch(`/sessions/${sessionIdToPause}`, {
+        const res = await fetch(`/sessions/${sessionIdToPause}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'paused' })
+            body: JSON.stringify({ status: 'paused' }),
+            credentials: 'include'
         });
+        if (res.status === 401) { window.location.href = '/login'; return; }
     } catch (e) {
         console.error("Failed to pause session on server:", e);
+        showToast("can't reach server", true);
     }
 }
 
@@ -309,17 +324,20 @@ async function completeSession() {
     const durationMins = 25;
 
     try {
-        await fetch(`/sessions/${sessionIdToComplete}`, {
+        const res = await fetch(`/sessions/${sessionIdToComplete}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 status: 'completed',
                 end_time: endTimeIso,
                 duration: durationMins
-            })
+            }),
+            credentials: 'include'
         });
+        if (res.status === 401) { window.location.href = '/login'; return; }
     } catch (e) {
         console.error("Failed to complete session on server:", e);
+        showToast("can't reach server", true);
     } finally {
         patchInFlight = false;
     }
@@ -404,9 +422,11 @@ if (stopEarlyBtn) {
                     status: 'stopped_early',
                     end_time: endTimeIso,
                     duration: durationMins
-                })
+                }),
+                credentials: 'include'
             });
             
+            if (res.status === 401) { window.location.href = '/login'; return; }
             if (res.ok) {
                 if (animationFrameId) {
                     cancelAnimationFrame(animationFrameId);
@@ -419,7 +439,7 @@ if (stopEarlyBtn) {
             }
         } catch (e) {
             console.error("Failed to reach server to stop early:", e);
-            showToast("Network error: Failed to stop early", true);
+            showToast("can't reach server", true);
         } finally {
             stopEarlyBtn.disabled = false;
         }
@@ -440,8 +460,10 @@ intrusionBtn.addEventListener('click', async () => {
         const res = await fetch(`/sessions/${sessionIdToInterrupt}/interruptions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ timestamp: timestampIso })
+            body: JSON.stringify({ timestamp: timestampIso }),
+            credentials: 'include'
         });
+        if (res.status === 401) { window.location.href = '/login'; return; }
         if (!res.ok) {
             console.error("Failed to log intrusion:", await res.json());
             showToast("Failed to log interruption", true);
@@ -453,7 +475,7 @@ intrusionBtn.addEventListener('click', async () => {
         }
     } catch (e) {
         console.error("Failed to reach server for intrusion logging:", e);
-        showToast("Network error: Failed to log interruption", true);
+        showToast("can't reach server", true);
     }
 });
 

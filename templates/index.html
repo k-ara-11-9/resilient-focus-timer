@@ -12,6 +12,7 @@
         <nav>
             <a href="/" class="active">Timer</a>
             <a href="/history">History</a>
+            <a href="#" onclick="logout()">Logout</a>
         </nav>
     </header>
     <div class="page-wrapper">
@@ -45,5 +46,18 @@
     <!-- Free notification sound preview from Mixkit -->
     <audio id="notificationSound" src="/static/notification.mp3" preload="auto"></audio>
     <script src="/static/script.js"></script>
+    <script>
+        function logout() {
+            fetch('/auth/logout', { method: 'POST', credentials: 'include' })
+                .then(res => {
+                    if (res.ok) {
+                        window.location.href = '/login';
+                    } else {
+                        alert("Logout failed");
+                    }
+                })
+                .catch(e => alert("can't reach server"));
+        }
+    </script>
 </body>
 </html>
