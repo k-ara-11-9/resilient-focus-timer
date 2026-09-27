@@ -10,32 +10,28 @@ APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
 
-def setup_db():
-    conn = sqlite3.connect('focus_timer.db')
-    cursor = conn.cursor()
-    # Delete all for clean test
-    cursor.execute("DELETE FROM Interruption")
-    cursor.execute("DELETE FROM Session")
-    conn.commit()
-    conn.close()
+
 
 def seed_db(sessions):
-    conn = sqlite3.connect('focus_timer.db')
+    conn = sqlite3.connect(temp_db)
     cursor = conn.cursor()
     for s in sessions:
         cursor.execute(
-            "INSERT INTO Session (date, start_time, end_time, duration, status) VALUES (?, ?, ?, ?, ?)",
-            (s['date'], s['start_time'], s.get('end_time'), s.get('duration'), s['status'])
+            "INSERT INTO Session (user_id, date, start_time, end_time, duration, status) VALUES (?, ?, ?, ?, ?, ?)",
+            (1, s['date'], s['start_time'], s.get('end_time'), s.get('duration'), s['status'])
         )
         sid = cursor.lastrowid
         for i in range(s.get('interruptions', 0)):
-            cursor.execute("INSERT INTO Interruption (SessionID, timestamp) VALUES (?, ?)", (sid, s['start_time']))
+            cursor.execute("INSERT INTO Interruption (SessionID, user_id, timestamp) VALUES (?, ?, ?)", (sid, 1, s['start_time']))
     conn.commit()
     conn.close()
 
-def run_tests():
+def test_e2e_lg01(_temp_db):
+    global temp_db
+    temp_db = _temp_db
     print("Starting Flask server for E2E tests...")
-    server = subprocess.Popen([sys.executable, APP_PATH])
+    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005')
+    server = subprocess.Popen([sys.executable, APP_PATH], env=env)
     time.sleep(2)
     
     try:
@@ -50,7 +46,13 @@ def run_tests():
                 route_event.append(route)
             
             page.route("**/sessions*", delay_response)
-            page.goto('http://127.0.0.1:5000/history', wait_until="domcontentloaded")
+            page.goto('http://127.0.0.1:5005/history', wait_until="domcontentloaded")
+            time.sleep(1)
+            if '/login' in page.url:
+                page.locator('#username').fill('testuser')
+                page.locator('#password').fill('testpass')
+                page.locator('button[type="submit"]').click()
+                time.sleep(1)
             
             loading_state = page.locator('#loadingState').inner_text()
             print(f"Loading state text: '{loading_state}'")
@@ -66,8 +68,14 @@ def run_tests():
             
             # TEST: Empty state
             print("=== TEST: Empty State ===")
-            setup_db()
-            page.goto('http://127.0.0.1:5000/history')
+            
+            page.goto('http://127.0.0.1:5005/history')
+            time.sleep(1)
+            if '/login' in page.url:
+                page.locator('#username').fill('testuser')
+                page.locator('#password').fill('testpass')
+                page.locator('button[type="submit"]').click()
+                time.sleep(1)
             time.sleep(1)
             empty_state = page.locator('.empty-state').inner_text()
             print(f"Empty state text: '{empty_state}'")
@@ -75,7 +83,7 @@ def run_tests():
             
             # TEST 1, 2, 3
             print("\n=== TEST: History List (Completed, Paused, Ordering) ===")
-            setup_db()
+            
             import datetime
             today = datetime.datetime.now()
             yesterday = today - datetime.timedelta(days=1)
@@ -90,7 +98,13 @@ def run_tests():
                 {'date': today.strftime('%Y-%m-%d'), 'start_time': '12:00:00', 'status': 'paused', 'interruptions': 5}
             ])
             
-            page.goto('http://127.0.0.1:5000/history')
+            page.goto('http://127.0.0.1:5005/history')
+            time.sleep(1)
+            if '/login' in page.url:
+                page.locator('#username').fill('testuser')
+                page.locator('#password').fill('testpass')
+                page.locator('button[type="submit"]').click()
+                time.sleep(1)
             time.sleep(1)
             
             cards = page.locator('.history-card')
@@ -122,5 +136,3 @@ def run_tests():
         server.terminate()
         server.wait()
 
-if __name__ == '__main__':
-    run_tests()

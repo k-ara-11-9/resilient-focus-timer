@@ -27,7 +27,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 sessions.forEach(session => {
                     let dateDisplay = "Unknown";
                     let timeDisplay = "";
-                    const duration = session.duration || 25; // in minutes
+                    const durationSecs = session.duration || 1500; // stored in seconds
+                    const duration = Math.round(durationSecs / 60); // convert to minutes for display
                     let startTimestamp = 0;
                     
                     if (session.date && session.start_time) {
@@ -46,7 +47,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             };
 
                             const startTimeStr = formatTime(sessionDate);
-                            const endDate = new Date(sessionDate.getTime() + duration * 60000);
+                            const endDate = new Date(sessionDate.getTime() + durationSecs * 1000);
                             const endTimeStr = formatTime(endDate);
                             timeDisplay = `${startTimeStr} - ${endTimeStr}`;
                             
@@ -107,12 +108,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 }
                                 
                                 intData.forEach(inv => {
-                                    const invTime = new Date(`${session.date}T${inv.timestamp}Z`).getTime();
+                                    const invTime = inv.timestamp.includes('T') 
+                                        ? new Date(inv.timestamp).getTime() 
+                                        : new Date(`${session.date}T${inv.timestamp}Z`).getTime();
                                     let percent = 0;
-                                    if (startTimestamp > 0 && duration > 0) {
-                                        percent = ((invTime - startTimestamp) / (duration * 60000)) * 100;
+                                    if (startTimestamp > 0 && durationSecs > 0) {
+                                        percent = ((invTime - startTimestamp) / (durationSecs * 1000)) * 100;
                                         if (percent < 0) {
-                                            percent = (((invTime + 24*3600*1000) - startTimestamp) / (duration * 60000)) * 100;
+                                            percent = (((invTime + 24*3600*1000) - startTimestamp) / (durationSecs * 1000)) * 100;
                                         }
                                     }
                                     if (percent < 0) percent = 0;
@@ -183,13 +186,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             heatDiv.innerHTML = '<div class="empty-state">Endpoint not found (404)</div>';
         } else if (heatRes.ok) {
             const data = await heatRes.json();
-            if (Object.keys(data).length === 0 || Object.values(data).every(v => v === 0)) {
+            if (!Array.isArray(data) || data.length === 0 || data.every(d => d.count === 0)) {
                 heatDiv.innerHTML = '<div class="empty-state">no data yet</div>';
             } else {
                 let html = '<ul style="list-style-type: none; padding: 0; margin: 0;">';
-                for (const [date, minutes] of Object.entries(data)) {
-                    html += `<li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #333;"><span>${date}</span> <span>${minutes} mins</span></li>`;
-                }
+                data.forEach(d => {
+                    const hourLabel = `${d.hour % 12 || 12} ${d.hour < 12 ? 'AM' : 'PM'}`;
+                    html += `<li style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #333;"><span>${hourLabel}</span> <span>${d.count} sessions</span></li>`;
+                });
                 html += '</ul>';
                 heatDiv.innerHTML = html;
             }
@@ -200,15 +204,3 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('heatmapAnalytics').innerHTML = '<div class="empty-state">can\'t reach server</div>';
     }
 });
-
-function logout() {
-    fetch('/auth/logout', { method: 'POST', credentials: 'include' })
-        .then(res => {
-            if (res.ok) {
-                window.location.href = '/login';
-            } else {
-                alert("Logout failed");
-            }
-        })
-        .catch(e => alert("can't reach server"));
-}

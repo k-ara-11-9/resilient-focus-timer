@@ -2,3 +2,4 @@
 playwright
 requests
 flake8
+pytest

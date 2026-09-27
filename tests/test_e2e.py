@@ -9,22 +9,22 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
-def run_tests():
-    conn = sqlite3.connect('focus_timer.db')
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM Interruption")
-    cursor.execute("DELETE FROM Session")
-    conn.commit()
-    conn.close()
-
+def test_e2e(temp_db):
     print("Starting Flask server for E2E tests...")
-    server = subprocess.Popen([sys.executable, APP_PATH], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005')
+    server = subprocess.Popen([sys.executable, APP_PATH], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2) # wait for server to start
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-        page.goto('http://127.0.0.1:5000')
+        page.goto('http://127.0.0.1:5005')
+        time.sleep(1)
+        if '/login' in page.url:
+            page.locator('#username').fill('testuser')
+            page.locator('#password').fill('testpass')
+            page.locator('button[type="submit"]').click()
+            time.sleep(1)
         
         print("Starting timer and checking if button disables...")
         route_event = []
@@ -99,5 +99,3 @@ def run_tests():
     server.terminate()
     server.wait()
 
-if __name__ == '__main__':
-    run_tests()

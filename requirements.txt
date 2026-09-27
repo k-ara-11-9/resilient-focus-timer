@@ -1,2 +1,2 @@
-Flask
-flask-cors
+Flask==3.1.3
+flask-cors==6.0.5

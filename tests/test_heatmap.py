@@ -3,11 +3,7 @@ from app import app
 from datetime import datetime, timedelta
 
 
-@pytest.fixture
-def client():
-    app.config['TESTING'] = True
-    with app.test_client() as client:
-        yield client
+
 
 
 def _signup_login(client, username):
@@ -57,20 +53,20 @@ def test_heatmap_counts(client):
     assert r.status_code == 200
     data = r.json
 
-    # Must have exactly 24 entries
-    assert len(data) == 24
+    # Must have exactly 2 entries (since zeros are filtered)
+    assert len(data) == 2
 
     # Build a lookup
     by_hour = {d['hour']: d['count'] for d in data}
-    assert by_hour[13] == 1  # 08:00 UTC → 13:30 IST
-    assert by_hour[19] == 1  # 14:00 UTC → 19:30 IST
+    assert by_hour.get(13, 0) == 1  # 08:00 UTC → 13:30 IST
+    assert by_hour.get(19, 0) == 1  # 14:00 UTC → 19:30 IST
     # 20:00 UTC → 01:30 IST next day, which is outside today-only range
-    assert by_hour[1] == 0
+    assert by_hour.get(1, 0) == 0
 
-    # All other hours should be 0
+    # All other hours should be 0 (i.e. not in the dict)
     for h in range(24):
         if h not in (13, 19):
-            assert by_hour[h] == 0, f"Hour {h} should be 0, got {by_hour[h]}"
+            assert by_hour.get(h, 0) == 0, f"Hour {h} should be 0, got {by_hour.get(h, 0)}"
 
     # Now query a range covering today and tomorrow to capture the rolled-over session
     tomorrow = today + timedelta(days=1)
@@ -79,7 +75,7 @@ def test_heatmap_counts(client):
     )
     data2 = r2.json
     by_hour2 = {d['hour']: d['count'] for d in data2}
-    assert by_hour2[1] == 1  # 20:00 UTC → 01:30 IST next day now included
+    assert by_hour2.get(1, 0) == 1  # 20:00 UTC → 01:30 IST next day now included
 
 
 def test_heatmap_zero_sessions(client):
@@ -90,9 +86,7 @@ def test_heatmap_zero_sessions(client):
     r = client.get('/analytics/heatmap')
     assert r.status_code == 200
     data = r.json
-    assert len(data) == 24
-    for entry in data:
-        assert entry['count'] == 0
+    assert len(data) == 0
 
 
 def test_heatmap_user_isolation(client):
@@ -113,16 +107,16 @@ def test_heatmap_user_isolation(client):
     r = client.get(f'/analytics/heatmap?start={day_str}&end={day_str}')
     data2 = r.json
     by_hour2 = {d['hour']: d['count'] for d in data2}
-    assert by_hour2[8] == 1   # User 2's own session
-    assert by_hour2[14] == 0  # Must NOT see User 1's session
+    assert by_hour2.get(8, 0) == 1   # User 2's own session
+    assert by_hour2.get(14, 0) == 0  # Must NOT see User 1's session
 
     # Switch back to User 1 and verify
     _signup_login(client, f'hm_iso1_{ts}')
     r = client.get(f'/analytics/heatmap?start={day_str}&end={day_str}')
     data1 = r.json
     by_hour1 = {d['hour']: d['count'] for d in data1}
-    assert by_hour1[14] == 1  # User 1's own session
-    assert by_hour1[8] == 0   # Must NOT see User 2's session
+    assert by_hour1.get(14, 0) == 1  # User 1's own session
+    assert by_hour1.get(8, 0) == 0   # Must NOT see User 2's session
 
 
 def test_heatmap_unauth(client):

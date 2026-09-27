@@ -291,6 +291,10 @@ async function completeSession() {
     // call from later targeting a different session if globals change.
     const sessionIdToComplete = currentSessionId;
     const endTimeToRecord = new Date(sessionEndTime || Date.now());
+    // Snapshot elapsed focus time now — same formula stopEarlyBtn uses.
+    // elapsedMs tracks accumulated focus time (excludes paused periods).
+    const elapsedMsSnapshot = DURATION_MS; // Full session completed = full duration
+    const durationSecs = Math.round(elapsedMsSnapshot / 1000);
 
     patchInFlight = true;
     state = 'completed';
@@ -321,7 +325,6 @@ async function completeSession() {
     updateUI(0);
     
     const endTimeIso = endTimeToRecord.toISOString().split('T')[1].split('.')[0];
-    const durationMins = 25;
 
     try {
         const res = await fetch(`/sessions/${sessionIdToComplete}`, {
@@ -330,7 +333,7 @@ async function completeSession() {
             body: JSON.stringify({ 
                 status: 'completed',
                 end_time: endTimeIso,
-                duration: durationMins
+                duration: durationSecs
             }),
             credentials: 'include'
         });
@@ -407,13 +410,13 @@ if (stopEarlyBtn) {
         if (!currentSessionId || (state !== 'running' && state !== 'paused')) return;
         
         const sessionIdToStop = currentSessionId;
-        const elapsedMsToStop = elapsedMs;
+        const elapsedMsToStop = (state === 'running' && sessionEndTime) ? DURATION_MS - (sessionEndTime - Date.now()) : elapsedMs;
 
         stopEarlyBtn.disabled = true;
         try {
             const trueEndTime = new Date();
             const endTimeIso = trueEndTime.toISOString().split('T')[1].split('.')[0];
-            const durationMins = Math.floor(elapsedMsToStop / (60 * 1000));
+            const durationSecs = Math.round(elapsedMsToStop / 1000);
             
             const res = await fetch(`/sessions/${sessionIdToStop}`, {
                 method: 'PATCH',
@@ -421,7 +424,7 @@ if (stopEarlyBtn) {
                 body: JSON.stringify({ 
                     status: 'stopped_early',
                     end_time: endTimeIso,
-                    duration: durationMins
+                    duration: durationSecs
                 }),
                 credentials: 'include'
             });

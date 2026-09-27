@@ -2,11 +2,7 @@ import pytest
 from app import app
 from datetime import datetime, timedelta
 
-@pytest.fixture
-def client():
-    app.config['TESTING'] = True
-    with app.test_client() as client:
-        yield client
+
 
 def test_analytics(client):
     # 1. Sign up and log in one user

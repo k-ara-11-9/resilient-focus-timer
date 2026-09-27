@@ -52,7 +52,7 @@
                 });
                 
                 if (res.ok) {
-                    window.location.href = '/login';
+                    window.location.href = '/';
                 } else {
                     const data = await res.json();
                     errorMsg.textContent = data.error || 'Signup failed';

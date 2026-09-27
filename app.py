@@ -6,18 +6,39 @@ import os
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 
+import secrets
+import sys
+
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'dev_secret_key')
+_secret = os.environ.get('SECRET_KEY')
+if _secret:
+    app.secret_key = _secret
+else:
+    app.secret_key = secrets.token_hex(32)
+    print("WARNING: SECRET_KEY not set — using a random key. "
+          "Sessions will not survive a server restart.",
+          file=sys.stderr)
 CORS(app, supports_credentials=True) # Enable CORS for frontend
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_NAME = os.path.join(BASE_DIR, 'focus_timer.db')
+DB_NAME = os.environ.get('TEST_DB_PATH', os.path.join(BASE_DIR, 'focus_timer.db'))
 
 def get_db():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
+
+def init_db():
+    """Ensure all tables exist.  Safe to call on every startup because
+    the DDL uses CREATE TABLE IF NOT EXISTS."""
+    from schema import create_tables
+    conn = sqlite3.connect(DB_NAME)
+    create_tables(conn)
+    conn.close()
+
+# Auto-initialize on import so both `flask run` and `python app.py` work.
+init_db()
 
 def login_required(f):
     @wraps(f)
@@ -541,7 +562,7 @@ def analytics_heatmap():
 
             hour_counts[ist_dt.hour] += 1
 
-        result = [{'hour': h, 'count': hour_counts[h]} for h in range(24)]
+        result = [{'hour': h, 'count': hour_counts[h]} for h in range(24) if hour_counts[h] > 0]
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': 'Database error occurred'}), 500
@@ -575,4 +596,5 @@ def index():
     return response
 
 if __name__ == '__main__':
-    app.run(debug=False, port=5000)
+    port = int(os.environ.get('FLASK_RUN_PORT', 5000))
+    app.run(debug=False, port=port)

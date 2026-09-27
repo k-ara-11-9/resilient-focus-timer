@@ -10,13 +10,14 @@ APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
 
-def run_tests():
+def test_e2e_tm02(temp_db):
     print("Starting Flask server for E2E tests...")
-    server = subprocess.Popen([sys.executable, APP_PATH], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005')
+    server = subprocess.Popen([sys.executable, APP_PATH], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2) # wait for server to start
     
     # Cleanup DB before start to ensure clean test
-    conn = sqlite3.connect('focus_timer.db')
+    conn = sqlite3.connect(temp_db)
     cursor = conn.cursor()
     cursor.execute("UPDATE Session SET status = 'completed' WHERE status = 'running' OR status = 'paused'")
     conn.commit()
@@ -26,7 +27,13 @@ def run_tests():
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto('http://127.0.0.1:5000')
+            page.goto('http://127.0.0.1:5005')
+            time.sleep(1)
+            if '/login' in page.url:
+                page.locator('#username').fill('testuser')
+                page.locator('#password').fill('testpass')
+                page.locator('button[type="submit"]').click()
+                time.sleep(1)
             time.sleep(1) # wait for async fetch
             
             print("Checking initial button state...")
@@ -106,7 +113,7 @@ def run_tests():
             print("=== NEW TEST: Negative Control (No session running) ===")
             # 5. Negative control
             # Complete the session on the server to simulate no running sessions
-            conn = sqlite3.connect('focus_timer.db')
+            conn = sqlite3.connect(temp_db)
             conn.execute("UPDATE Session SET status = 'completed'")
             conn.commit()
             conn.close()
@@ -126,7 +133,7 @@ def run_tests():
             browser.close()
             
         print("Checking database for logged interruptions...")
-        conn = sqlite3.connect('focus_timer.db')
+        conn = sqlite3.connect(temp_db)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -148,5 +155,3 @@ def run_tests():
         server.terminate()
         server.wait()
 
-if __name__ == '__main__':
-    run_tests()

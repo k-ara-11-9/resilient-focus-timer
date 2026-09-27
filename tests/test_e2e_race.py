@@ -9,18 +9,13 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
-def setup_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM Interruption")
-    cursor.execute("DELETE FROM Session")
-    conn.commit()
-    conn.close()
 
-def run_tests():
+
+def test_e2e_race(temp_db):
     print("Starting Flask server for race condition test...")
-    setup_db()
-    server = subprocess.Popen([sys.executable, APP_PATH], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005')
+    server = subprocess.Popen([sys.executable, APP_PATH], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2)
     
     try:
@@ -31,7 +26,13 @@ def run_tests():
             
             print("=== TEST: Race condition in completeSession ===")
             page.on("console", lambda msg: print(f"Browser console: {msg.text}"))
-            page.goto('http://127.0.0.1:5000/')
+            page.goto('http://127.0.0.1:5005/')
+            time.sleep(1)
+            if '/login' in page.url:
+                page.locator('#username').fill('testuser')
+                page.locator('#password').fill('testpass')
+                page.locator('button[type="submit"]').click()
+                time.sleep(1)
             
             # Start a session
             page.locator('#actionBtn').click()
@@ -90,5 +91,3 @@ def run_tests():
         server.terminate()
         server.wait()
 
-if __name__ == '__main__':
-    run_tests()
