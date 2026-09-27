@@ -25,41 +25,111 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const yesterdayStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth()+1)}-${pad(yesterday.getDate())}`;
 
                 sessions.forEach(session => {
-                    let dateStr = "Unknown";
+                    let dateDisplay = "Unknown";
+                    let timeDisplay = "";
+                    const duration = session.duration || 25; // in minutes
+                    let startTimestamp = 0;
+                    
                     if (session.date && session.start_time) {
                         const sessionDate = new Date(`${session.date}T${session.start_time}Z`);
                         if (!isNaN(sessionDate.getTime())) {
+                            startTimestamp = sessionDate.getTime();
                             const localDateStr = `${sessionDate.getFullYear()}-${pad(sessionDate.getMonth()+1)}-${pad(sessionDate.getDate())}`;
                             
-                            let hours = sessionDate.getHours();
-                            const minutes = pad(sessionDate.getMinutes());
-                            const ampm = hours >= 12 ? 'PM' : 'AM';
-                            hours = hours % 12;
-                            hours = hours ? hours : 12; 
-                            const timeStr = `${hours}:${minutes} ${ampm}`;
+                            const formatTime = (d) => {
+                                let h = d.getHours();
+                                const m = pad(d.getMinutes());
+                                const ampm = h >= 12 ? 'PM' : 'AM';
+                                h = h % 12;
+                                h = h ? h : 12; 
+                                return `${h}:${m} ${ampm}`;
+                            };
 
+                            const startTimeStr = formatTime(sessionDate);
+                            const endDate = new Date(sessionDate.getTime() + duration * 60000);
+                            const endTimeStr = formatTime(endDate);
+                            timeDisplay = `${startTimeStr} - ${endTimeStr}`;
+                            
                             if (localDateStr === todayStr) {
-                                dateStr = `Today, ${timeStr}`;
+                                dateDisplay = `Today`;
                             } else if (localDateStr === yesterdayStr) {
-                                dateStr = `Yesterday, ${timeStr}`;
+                                dateDisplay = `Yesterday`;
                             } else {
-                                dateStr = `${monthNames[sessionDate.getMonth()]} ${sessionDate.getDate()}, ${timeStr}`;
+                                dateDisplay = `${monthNames[sessionDate.getMonth()]} ${sessionDate.getDate()}`;
                             }
                         } else {
-                            dateStr = session.date;
+                            dateDisplay = session.date;
+                            timeDisplay = session.start_time;
                         }
                     }
                     
-                    const duration = session.duration || 25;
                     const interrupts = session.interruption_count;
                     const interruptText = interrupts === 1 ? '1 interruption' : `${interrupts} interruptions`;
                     
                     const card = document.createElement('div');
                     card.className = 'history-card';
+                    card.style.cursor = 'pointer';
                     card.innerHTML = `
-                        <div class="history-date">${dateStr}</div>
+                        <div class="history-date">${dateDisplay} <span style="font-size: 0.8em; color: #888; margin-left: 8px;">${timeDisplay}</span></div>
                         <div class="history-details">${duration} min - ${interruptText}</div>
+                        <div class="timeline-container" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #333;">
+                        </div>
                     `;
+                    
+                    let expanded = false;
+                    let loaded = false;
+                    card.addEventListener('click', async () => {
+                        const container = card.querySelector('.timeline-container');
+                        if (expanded) {
+                            container.style.display = 'none';
+                            expanded = false;
+                            return;
+                        }
+                        
+                        container.style.display = 'block';
+                        expanded = true;
+                        
+                        if (loaded) return;
+                        
+                        container.innerHTML = '<div style="font-size: 0.85em; color: #888;">Loading timeline...</div>';
+                        try {
+                            const iRes = await fetch(`/sessions/${session.sessionID}/interruptions`, { credentials: 'include' });
+                            if (iRes.status === 401) { window.location.href = '/login'; return; }
+                            if (iRes.ok) {
+                                const intData = await iRes.json();
+                                loaded = true;
+                                
+                                let timelineHTML = '<div style="position: relative; height: 12px; background: #333; border-radius: 6px; margin: 12px 0;">';
+                                
+                                if (intData.length === 0) {
+                                    container.innerHTML = timelineHTML + '</div><div style="font-size: 0.8em; color: #888; text-align: center;">no interruptions</div>';
+                                    return;
+                                }
+                                
+                                intData.forEach(inv => {
+                                    const invTime = new Date(`${session.date}T${inv.timestamp}Z`).getTime();
+                                    let percent = 0;
+                                    if (startTimestamp > 0 && duration > 0) {
+                                        percent = ((invTime - startTimestamp) / (duration * 60000)) * 100;
+                                        if (percent < 0) {
+                                            percent = (((invTime + 24*3600*1000) - startTimestamp) / (duration * 60000)) * 100;
+                                        }
+                                    }
+                                    if (percent < 0) percent = 0;
+                                    if (percent > 100) percent = 100;
+                                    
+                                    timelineHTML += `<div style="position: absolute; left: ${percent}%; top: 50%; transform: translate(-50%, -50%); width: 4px; height: 16px; background: #e76f51; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>`;
+                                });
+                                
+                                timelineHTML += '</div>';
+                                container.innerHTML = timelineHTML;
+                            } else {
+                                container.innerHTML = '<div style="font-size: 0.85em; color: #e76f51;">Error loading interruptions</div>';
+                            }
+                        } catch(e) {
+                            container.innerHTML = '<div style="font-size: 0.85em; color: #e76f51;">Network error</div>';
+                        }
+                    });
                     
                     historyList.appendChild(card);
                 });
