@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template, session, redirect, make_response
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime
@@ -470,7 +470,13 @@ def analytics_daily():
 
 @app.route('/history')
 def history():
-    return render_template('history.html')
+    if 'user_id' not in session:
+        response = make_response(redirect('/login'))
+    else:
+        response = make_response(render_template('history.html'))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    return response
 
 @app.route('/login')
 def login_page():
@@ -482,7 +488,13 @@ def signup_page():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    if 'user_id' not in session:
+        response = make_response(redirect('/login'))
+    else:
+        response = make_response(render_template('index.html'))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    return response
 
 if __name__ == '__main__':
     app.run(debug=False, port=5000)
