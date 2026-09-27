@@ -24,6 +24,7 @@ SCHEMA_SQL = [
         start_time TIME NOT NULL,
         end_time TIME,
         duration INTEGER,
+        focus_duration INTEGER,
         status TEXT NOT NULL,
         FOREIGN KEY (user_id) REFERENCES User(id)
     )

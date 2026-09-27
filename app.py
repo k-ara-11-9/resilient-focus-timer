@@ -188,6 +188,17 @@ def create_session():
     start_time_raw = data['start_time']
     user_id = session['user_id']
     
+    focus_duration = data.get('focus_duration')
+    if focus_duration is not None:
+        try:
+            focus_duration = int(focus_duration)
+            if focus_duration <= 0 or focus_duration > 10800:
+                return jsonify({'error': 'focus_duration must be between 1 and 10800 seconds'}), 400
+        except ValueError:
+            return jsonify({'error': 'focus_duration must be an integer'}), 400
+    else:
+        focus_duration = 1500
+    
     try:
         # Attempt to parse as ISO datetime
         from datetime import datetime as dt_module
@@ -211,8 +222,8 @@ def create_session():
 
     # Insert new session
     cursor.execute(
-        "INSERT INTO Session (date, start_time, status, user_id) VALUES (?, ?, ?, ?)",
-        (date_part, time_part, 'running', user_id)
+        "INSERT INTO Session (date, start_time, status, user_id, focus_duration) VALUES (?, ?, ?, ?, ?)",
+        (date_part, time_part, 'running', user_id, focus_duration)
     )
     session_id = cursor.lastrowid
     conn.commit()
@@ -221,7 +232,8 @@ def create_session():
     return jsonify({
         'sessionID': session_id,
         'start_time': start_time_raw,
-        'status': 'running'
+        'status': 'running',
+        'focus_duration': focus_duration
     }), 201
 
 @app.route('/sessions/<int:session_id>', methods=['GET'])
