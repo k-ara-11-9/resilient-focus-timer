@@ -386,11 +386,7 @@ export default function App() {
       setAuthView('login')
       await bootstrap()
     } catch (err) {
-      if (err.status === 400 || err.status === 401) {
-        setAuthError(err.data?.error || 'Login failed')
-      } else {
-        setAuthError('Network error. Is Flask running on 127.0.0.1:5000?')
-      }
+      setAuthError(err.data?.error || `Login failed: HTTP ${err.status || 'Network Error'}`)
     }
   }
 
@@ -400,11 +396,7 @@ export default function App() {
       await api('/auth/signup', { method: 'POST', body: { username, email, password } })
       await bootstrap()
     } catch (err) {
-      if (err.status === 400 || err.status === 409) {
-        setAuthError(err.data?.error || 'Signup failed')
-      } else {
-        setAuthError('Network error. Is Flask running on 127.0.0.1:5000?')
-      }
+      setAuthError(err.data?.error || `Signup failed: HTTP ${err.status || 'Network Error'}`)
     }
   }
 
@@ -759,7 +751,7 @@ export default function App() {
           </span>
         ))}
       </div>
-      <audio ref={audio} src="http://127.0.0.1:5000/static/notification.mp3" preload="auto" />
+      <audio ref={audio} src="/static/notification.mp3" preload="auto" />
       {toast && <div className="toast">{toast}</div>}
       {forbiddenMsg && (
         <div className="toast toast-err"><AlertCircle size={14} /> {forbiddenMsg}</div>
