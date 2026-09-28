@@ -16,7 +16,7 @@ DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 def test_e2e_resync(temp_db):
     print("Starting Flask server for resync test...")
     
-    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005')
+    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005', SECRET_KEY='e2e_test_secret')
     server = subprocess.Popen([sys.executable, APP_PATH], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2)
     
@@ -29,11 +29,8 @@ def test_e2e_resync(temp_db):
             print("=== TEST: Resync of legitimately ended session ===")
             page.goto('http://127.0.0.1:5005/')
             time.sleep(1)
-            if '/login' in page.url:
-                page.locator('#username').fill('testuser')
-                page.locator('#password').fill('testpass')
-                page.locator('button[type="submit"]').click()
-                time.sleep(1)
+            from tests.e2e_helpers import e2e_login
+            e2e_login(page)
             
             # Start a session (Device A)
             page.locator('#actionBtn').click()
@@ -48,7 +45,7 @@ def test_e2e_resync(temp_db):
             device_b_session = requests.Session()
             device_b_session.post('http://127.0.0.1:5005/auth/login', json={'username': 'testuser', 'password': 'testpass'})
             
-            true_end_time = datetime.datetime.utcnow().strftime('%H:%M:%S')
+            true_end_time = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).strftime('%H:%M:%S')
             response = device_b_session.patch(f"http://127.0.0.1:5005/sessions/{session_id}", json={
                 "status": "stopped_early",
                 "end_time": true_end_time,

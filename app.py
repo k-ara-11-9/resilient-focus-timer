@@ -1,10 +1,21 @@
 from flask import Flask, request, jsonify, render_template, session, redirect, make_response
 from flask_cors import CORS
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import os
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+
+# IST has no DST; use a fixed offset so analytics works on Windows without tzdata.
+UTC_TZ = timezone.utc
+IST_TZ = timezone(timedelta(hours=5, minutes=30))
+
+
+def _safe_next_path(value):
+    """Allow only same-origin relative paths (open-redirect safe)."""
+    if isinstance(value, str) and value.startswith('/') and not value.startswith('//'):
+        return value
+    return '/'
 
 import secrets
 import sys
@@ -437,9 +448,6 @@ def analytics_daily():
         conn = get_db()
         cursor = conn.cursor()
         
-        import zoneinfo
-        ist_tz = zoneinfo.ZoneInfo('Asia/Kolkata')
-        
         # Widen the date range by 1 day on both sides for the DB query to catch timezone boundary overlaps
         db_start_date = start_date - timedelta(days=1)
         db_end_date = end_date + timedelta(days=1)
@@ -465,8 +473,8 @@ def analytics_daily():
             try:
                 # Try to combine date and time. Assume stored timestamp is UTC.
                 dt = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M:%S')
-                dt = dt.replace(tzinfo=zoneinfo.ZoneInfo('UTC'))
-                ist_dt = dt.astimezone(ist_tz)
+                dt = dt.replace(tzinfo=UTC_TZ)
+                ist_dt = dt.astimezone(IST_TZ)
                 day = ist_dt.date()
             except ValueError:
                 # Fallback if time_str is not HH:MM:SS
@@ -534,9 +542,6 @@ def analytics_heatmap():
         conn = get_db()
         cursor = conn.cursor()
 
-        import zoneinfo
-        ist_tz = zoneinfo.ZoneInfo('Asia/Kolkata')
-
         # Widen the date range by 1 day on both sides to catch timezone boundary overlaps
         db_start_date = start_date - timedelta(days=1)
         db_end_date = end_date + timedelta(days=1)
@@ -558,8 +563,8 @@ def analytics_heatmap():
             try:
                 # Combine date and time, assume stored as UTC, convert to IST
                 dt = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M:%S')
-                dt = dt.replace(tzinfo=zoneinfo.ZoneInfo('UTC'))
-                ist_dt = dt.astimezone(ist_tz)
+                dt = dt.replace(tzinfo=UTC_TZ)
+                ist_dt = dt.astimezone(IST_TZ)
                 day = ist_dt.date()
             except ValueError:
                 try:
@@ -582,7 +587,7 @@ def analytics_heatmap():
 @app.route('/history')
 def history():
     if 'user_id' not in session:
-        response = make_response(redirect('/login'))
+        response = make_response(redirect('/login?next=/history'))
     else:
         response = make_response(render_template('history.html'))
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
@@ -600,7 +605,7 @@ def signup_page():
 @app.route('/')
 def index():
     if 'user_id' not in session:
-        response = make_response(redirect('/login'))
+        response = make_response(redirect('/login?next=/'))
     else:
         response = make_response(render_template('index.html'))
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'

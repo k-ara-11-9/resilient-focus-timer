@@ -13,7 +13,7 @@ DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
 
 def seed_db(sessions):
-    conn = sqlite3.connect(temp_db)
+    conn = sqlite3.connect(_db_path)
     cursor = conn.cursor()
     for s in sessions:
         cursor.execute(
@@ -26,11 +26,11 @@ def seed_db(sessions):
     conn.commit()
     conn.close()
 
-def test_e2e_lg01(_temp_db):
-    global temp_db
-    temp_db = _temp_db
+def test_e2e_lg01(temp_db):
+    global _db_path
+    _db_path = temp_db
     print("Starting Flask server for E2E tests...")
-    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005')
+    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005', SECRET_KEY='e2e_test_secret')
     server = subprocess.Popen([sys.executable, APP_PATH], env=env)
     time.sleep(2)
     
@@ -48,11 +48,8 @@ def test_e2e_lg01(_temp_db):
             page.route("**/sessions*", delay_response)
             page.goto('http://127.0.0.1:5005/history', wait_until="domcontentloaded")
             time.sleep(1)
-            if '/login' in page.url:
-                page.locator('#username').fill('testuser')
-                page.locator('#password').fill('testpass')
-                page.locator('button[type="submit"]').click()
-                time.sleep(1)
+            from tests.e2e_helpers import e2e_login
+            e2e_login(page)
             
             loading_state = page.locator('#loadingState').inner_text()
             print(f"Loading state text: '{loading_state}'")
@@ -71,13 +68,9 @@ def test_e2e_lg01(_temp_db):
             
             page.goto('http://127.0.0.1:5005/history')
             time.sleep(1)
-            if '/login' in page.url:
-                page.locator('#username').fill('testuser')
-                page.locator('#password').fill('testpass')
-                page.locator('button[type="submit"]').click()
-                time.sleep(1)
+            e2e_login(page)
             time.sleep(1)
-            empty_state = page.locator('.empty-state').inner_text()
+            empty_state = page.locator('#historyList .empty-state').inner_text()
             print(f"Empty state text: '{empty_state}'")
             assert "No completed sessions" in empty_state
             
@@ -100,11 +93,7 @@ def test_e2e_lg01(_temp_db):
             
             page.goto('http://127.0.0.1:5005/history')
             time.sleep(1)
-            if '/login' in page.url:
-                page.locator('#username').fill('testuser')
-                page.locator('#password').fill('testpass')
-                page.locator('button[type="submit"]').click()
-                time.sleep(1)
+            e2e_login(page)
             time.sleep(1)
             
             cards = page.locator('.history-card')

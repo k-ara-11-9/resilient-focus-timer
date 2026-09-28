@@ -11,28 +11,28 @@ APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
 def setup_db_backdated_session():
-    conn = sqlite3.connect(temp_db)
+    conn = sqlite3.connect(_db_path)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM Interruption")
     cursor.execute("DELETE FROM Session")
     
     # Backdate by 13 minutes (so 12 minutes remain)
-    thirteen_mins_ago = datetime.datetime.utcnow() - datetime.timedelta(minutes=13)
+    thirteen_mins_ago = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - datetime.timedelta(minutes=13)
     date_str = thirteen_mins_ago.strftime('%Y-%m-%d')
     time_str = thirteen_mins_ago.strftime('%H:%M:%S')
     
     cursor.execute('''
-        INSERT INTO Session (UserID, date, start_time, status)
+        INSERT INTO Session (user_id, date, start_time, status)
         VALUES (1, ?, ?, 'running')
     ''', (date_str, time_str))
     conn.commit()
     conn.close()
 
-def test_e2e_recovery(_temp_db):
-    global temp_db
-    temp_db = _temp_db
+def test_e2e_recovery(temp_db):
+    global _db_path
+    _db_path = temp_db
     print("Starting Flask server for E2E tests...")
-    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005')
+    env = dict(os.environ, TEST_DB_PATH=temp_db, FLASK_RUN_PORT='5005', SECRET_KEY='e2e_test_secret')
     server = subprocess.Popen([sys.executable, APP_PATH], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2)
     
@@ -47,11 +47,8 @@ def test_e2e_recovery(_temp_db):
             
             page.goto('http://127.0.0.1:5005/')
             time.sleep(1)
-            if '/login' in page.url:
-                page.locator('#username').fill('testuser')
-                page.locator('#password').fill('testpass')
-                page.locator('button[type="submit"]').click()
-                time.sleep(1)
+            from tests.e2e_helpers import e2e_login
+            e2e_login(page)
             
             # Wait for JS to load and parse the running session
             page.wait_for_selector('button:has-text("Pause")')

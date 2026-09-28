@@ -42,7 +42,9 @@
                 });
                 
                 if (res.ok) {
-                    window.location.href = '/';
+                    const params = new URLSearchParams(window.location.search);
+                    const next = params.get('next') || '/';
+                    window.location.href = (next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) ? next : '/';
                 } else {
                     const data = await res.json();
                     errorMsg.textContent = data.error || 'Login failed';
