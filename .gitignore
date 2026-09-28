@@ -9,6 +9,9 @@ test_post.py
 fix_paths.py
 mock.py
 frontend/node_modules/
-frontend/dist/
 .trae/
 .env
+*.bak
+*.db.old
+*.db.before_audit
+ 

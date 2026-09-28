@@ -32,7 +32,7 @@ else:
 CORS(app, supports_credentials=True) # Enable CORS for frontend
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_NAME = os.environ.get('TEST_DB_PATH', os.path.join(BASE_DIR, 'focus_timer.db'))
+DB_NAME = os.environ.get('FOCUS_TIMER_DB', os.environ.get('TEST_DB_PATH', os.path.join(BASE_DIR, 'focus_timer.db')))
 
 def get_db():
     conn = sqlite3.connect(DB_NAME)
@@ -179,13 +179,13 @@ def get_sessions():
         else:
             return jsonify([]), 200
             
-    # Default behavior: return completed sessions
+    # Default behavior: return completed + stopped_early sessions
     query = """
-        SELECT s.SessionID, s.date, s.start_time, s.duration, s.status,
+        SELECT s.SessionID, s.date, s.start_time, s.duration, s.status, s.task_name, s.tags,
                COUNT(i.InterruptionID) as interruption_count
         FROM Session s
         LEFT JOIN Interruption i ON s.SessionID = i.SessionID
-        WHERE s.status = 'completed' AND s.user_id = ?
+        WHERE s.status IN ('completed', 'stopped_early') AND s.user_id = ?
     """
     params = [user_id]
 
@@ -210,6 +210,8 @@ def get_sessions():
             'start_time': row['start_time'],
             'duration': row['duration'],
             'status': row['status'],
+            'task_name': row['task_name'],
+            'tags': row['tags'],
             'interruption_count': row['interruption_count']
         })
 
@@ -257,10 +259,13 @@ def create_session():
         conn.close()
         return jsonify({'error': 'A running session already exists'}), 409
 
+    task_name = data.get('task_name')
+    tags = data.get('tags')
+
     # Insert new session
     cursor.execute(
-        "INSERT INTO Session (date, start_time, status, user_id, focus_duration) VALUES (?, ?, ?, ?, ?)",
-        (date_part, time_part, 'running', user_id, focus_duration)
+        "INSERT INTO Session (date, start_time, status, user_id, focus_duration, task_name, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (date_part, time_part, 'running', user_id, focus_duration, task_name, tags)
     )
     session_id = cursor.lastrowid
     conn.commit()
@@ -268,7 +273,8 @@ def create_session():
 
     return jsonify({
         'sessionID': session_id,
-        'start_time': start_time_raw,
+        'date': date_part,
+        'start_time': time_part,
         'status': 'running',
         'focus_duration': focus_duration,
         'paused_ms': 0,
@@ -345,13 +351,24 @@ def update_session(session_id):
     if 'paused_ms' in data and data['paused_ms'] is not None:
         try:
             val = int(data['paused_ms'])
-            if val < 0:
-                conn.close()
-                return jsonify({'error': 'paused_ms must be >= 0'}), 400
-            paused_ms = val
         except (TypeError, ValueError):
             conn.close()
             return jsonify({'error': 'paused_ms must be an integer'}), 400
+        if val < 0:
+            conn.close()
+            return jsonify({'error': 'paused_ms must be >= 0'}), 400
+        try:
+            from datetime import datetime as dt_elapsed
+            start_dt = dt_elapsed.strptime(f"{sess['date']} {sess['start_time']}", '%Y-%m-%d %H:%M:%S')
+            start_dt = start_dt.replace(tzinfo=UTC_TZ)
+            now_dt = dt_elapsed.now(UTC_TZ)
+            elapsed_ms = max(0, int((now_dt - start_dt).total_seconds() * 1000))
+            MAX_ALLOWED_PAUSED = max(elapsed_ms, 3_600_000)
+            if val > MAX_ALLOWED_PAUSED:
+                val = MAX_ALLOWED_PAUSED
+        except (ValueError, TypeError):
+            pass
+        paused_ms = val
 
     last_pause = data.get('last_pause_start_iso', sess['last_pause_start_iso'])
     if last_pause is not None and last_pause != '':
@@ -505,11 +522,12 @@ def analytics_daily():
         db_end_date = end_date + timedelta(days=1)
         
         cursor.execute("""
-            SELECT s.date, s.start_time, s.SessionID, s.duration,
+            SELECT s.date, s.start_time, s.SessionID, s.duration, s.status,
                    COUNT(i.InterruptionID) as interruption_count
             FROM Session s
             LEFT JOIN Interruption i ON s.SessionID = i.SessionID
             WHERE s.user_id = ? AND s.date >= ? AND s.date <= ?
+              AND s.status IN ('completed', 'stopped_early')
             GROUP BY s.SessionID
         """, (user_id, db_start_date.strftime('%Y-%m-%d'), db_end_date.strftime('%Y-%m-%d')))
         
@@ -602,6 +620,7 @@ def analytics_heatmap():
             SELECT s.date, s.start_time
             FROM Session s
             WHERE s.user_id = ? AND s.date >= ? AND s.date <= ?
+              AND s.status IN ('completed', 'stopped_early')
         """, (user_id, db_start_date.strftime('%Y-%m-%d'), db_end_date.strftime('%Y-%m-%d')))
 
         rows = cursor.fetchall()
@@ -636,33 +655,141 @@ def analytics_heatmap():
     except Exception as e:
         return jsonify({'error': 'Database error occurred'}), 500
 
-@app.route('/history')
-def history():
-    if 'user_id' not in session:
-        response = make_response(redirect('/login?next=/history'))
-    else:
-        response = make_response(render_template('history.html'))
+@app.route('/analytics/summary', methods=['GET'])
+@login_required
+def analytics_summary():
+    user_id = session['user_id']
+
+    from datetime import date, datetime, timedelta as td_
+
+    end_date = date.today()
+    start_date = end_date - td_(days=6)
+
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Query wide enough around last 7 days to catch timezone boundaries
+        db_start = start_date - td_(days=1)
+        db_end = end_date + td_(days=1)
+
+        cursor.execute("""
+            SELECT s.date, s.start_time, s.duration, s.status, s.tags
+            FROM Session s
+            WHERE s.user_id = ? AND s.status IN ('completed', 'stopped_early')
+              AND s.date >= ? AND s.date <= ?
+        """, (user_id, db_start.strftime('%Y-%m-%d'), db_end.strftime('%Y-%m-%d')))
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Build daily buckets keyed by IST-local date (YYYY-MM-DD string)
+        # minutes_total -> focus minutes that day
+        # has_completed -> True if any completed session that day (IST local)
+        from collections import defaultdict
+        per_day = defaultdict(lambda: {'minutes': 0, 'completed': False})
+
+        for row in rows:
+            date_str = row['date']
+            time_str = row['start_time']
+            try:
+                dt = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M:%S')
+                dt = dt.replace(tzinfo=UTC_TZ).astimezone(IST_TZ)
+                local_day = dt.date()
+            except ValueError:
+                try:
+                    local_day = datetime.strptime(date_str, '%Y-%m-%d').date()
+                except ValueError:
+                    continue
+
+            day_key = local_day.strftime('%Y-%m-%d')
+            duration_secs = int(row['duration'] or 0)
+            per_day[day_key]['minutes'] += max(0, duration_secs // 60)
+            per_day[day_key]['completed'] = True
+            
+            tags = row['tags']
+            if tags:
+                try:
+                    import json
+                    tags_list = json.loads(tags)
+                    for t in tags_list:
+                        per_day[day_key].setdefault('tags_dist', defaultdict(int))
+                        per_day[day_key]['tags_dist'][t] += max(0, duration_secs // 60)
+                except Exception:
+                    pass
+
+        # Generate ordered 7-day window, oldest -> newest, today at end
+        window = []
+        cursor_day = start_date
+        while cursor_day <= end_date:
+            key = cursor_day.strftime('%Y-%m-%d')
+            entry = per_day.get(key, {'minutes': 0, 'completed': False})
+            window.append({
+                'date': key,
+                'focus_minutes': entry['minutes'],
+                'has_completed': entry['completed']
+            })
+            cursor_day += td_(days=1)
+
+        # Consistency: % of last 7 days with at least 1 completed session
+        active_days = sum(1 for d in window if d['has_completed'])
+        consistency_pct = 0 if len(window) == 0 else round((active_days / len(window)) * 100)
+
+        # Streak: consecutive days ending at today with at least one completed session
+        # Walk backwards from today; stop on the first empty day
+        streak = 0
+        reversed_days = list(reversed(window))  # today first
+        for d in reversed_days:
+            if d['has_completed']:
+                streak += 1
+            else:
+                break
+
+        weekly_minutes = [{'date': d['date'], 'focus_minutes': d['focus_minutes']} for d in window]
+        
+        # Aggregate tags_dist across the 7 days
+        tags_distribution = defaultdict(int)
+        for key, entry in per_day.items():
+            if 'tags_dist' in entry:
+                for t, mins in entry['tags_dist'].items():
+                    tags_distribution[t] += mins
+
+        return jsonify({
+            'streak': streak,
+            'consistency_pct': consistency_pct,
+            'active_days_last7': active_days,
+            'weekly_minutes': weekly_minutes,
+            'tags_distribution': dict(tags_distribution)
+        }), 200
+    except Exception as e:
+        return jsonify({'error': 'Database error occurred'}), 500
+
+from flask import send_from_directory
+
+def render_react():
+    response = make_response(send_from_directory(os.path.join(BASE_DIR, 'frontend', 'dist'), 'index.html'))
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
     return response
+
+@app.route('/assets/<path:filename>')
+def serve_assets(filename):
+    return send_from_directory(os.path.join(BASE_DIR, 'frontend', 'dist', 'assets'), filename)
+
+@app.route('/history')
+def history():
+    return render_react()
 
 @app.route('/login')
 def login_page():
-    return render_template('login.html')
+    return render_react()
 
 @app.route('/signup')
 def signup_page():
-    return render_template('signup.html')
+    return render_react()
 
 @app.route('/')
 def index():
-    if 'user_id' not in session:
-        response = make_response(redirect('/login?next=/'))
-    else:
-        response = make_response(render_template('index.html'))
-    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
-    response.headers['Pragma'] = 'no-cache'
-    return response
+    return render_react()
 
 if __name__ == '__main__':
     port = int(os.environ.get('FLASK_RUN_PORT', 5000))

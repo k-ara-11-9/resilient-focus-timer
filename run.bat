@@ -27,12 +27,9 @@ call venv\Scripts\activate.bat
 echo Installing dependencies...
 pip install -r requirements.txt --quiet
 
-REM Run migration only if the database doesn't exist yet
-if not exist "focus_timer.db" (
-    echo No database found - running migration...
-    python migrate.py
-) else (
-    echo Existing database found - skipping migration.
+REM Generate a stable SECRET_KEY for local dev if not set
+if not defined SECRET_KEY (
+    set "SECRET_KEY=local_development_secret_key_12345"
 )
 
 echo.

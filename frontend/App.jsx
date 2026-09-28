@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Leaf, Mountain, Waves, TreePine, Settings, Play, Pause, RotateCcw, SkipForward, X, Volume2, LogOut, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { Check, Leaf, Mountain, Waves, TreePine, Settings, Play, Pause, RotateCcw, SkipForward, X, Volume2, LogOut, AlertCircle, ChevronDown, ChevronRight, Flame, Target } from 'lucide-react'
 import forest from './assets/forest-reference.png'
 import mountain from './assets/mountain-scene.jpg'
 import ocean from './assets/ocean-scene.jpg'
@@ -69,6 +69,7 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [task, setTask] = useState(() => read('rf-task', ''))
   const [sound, setSound] = useState(() => read('rf-sound', true))
+  const [strictMode, setStrictMode] = useState(() => read('rf-strict', false))
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [leaves, setLeaves] = useState([])
   const audio = useRef(null)
@@ -85,6 +86,8 @@ export default function App() {
   const totalPausedMsRef = useRef(0)
   const localPauseStartRef = useRef(null)
   const startMillisRef = useRef(0)
+  const breakStartRef = useRef(0)
+  const breakRemainingAtStartRef = useRef(0)
 
   const [sessions, setSessions] = useState([])
   const [expandedRow, setExpandedRow] = useState(null)
@@ -92,6 +95,12 @@ export default function App() {
 
   const [dailyAnalytics, setDailyAnalytics] = useState([])
   const [heatmapData, setHeatmapData] = useState(Array(24).fill(0))
+  const [summaryStats, setSummaryStats] = useState({
+    streak: 0,
+    consistency_pct: 0,
+    active_days_last7: 0,
+    weekly_minutes: []
+  })
 
   const [restoredBanner, setRestoredBanner] = useState('')
 
@@ -104,30 +113,74 @@ export default function App() {
     setTimeout(() => setToast(''), 3500)
   }
 
+  const audioUnlocked = useRef(false)
+  function unlockAudio() {
+    if (!audioUnlocked.current && audio.current) {
+      audio.current.play().catch(() => {})
+      audio.current.pause()
+      audio.current.currentTime = 0
+      audioUnlocked.current = true
+    }
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }
+
   useEffect(() => { localStorage.setItem('rf-scene', JSON.stringify(scene)) }, [scene])
   useEffect(() => { localStorage.setItem('rf-durations', JSON.stringify(durations)) }, [durations])
   useEffect(() => { localStorage.setItem('rf-task', JSON.stringify(task)) }, [task])
   useEffect(() => { localStorage.setItem('rf-sound', JSON.stringify(sound)) }, [sound])
+  useEffect(() => { localStorage.setItem('rf-strict', JSON.stringify(strictMode)) }, [strictMode])
 
   useEffect(() => {
     if (!running || mode !== 'focus' || !currentSession) return
-    const id = setInterval(() => {
-      const remainingMs = computeTrueRemaining(
-        startMillisRef.current,
-        plannedFocusSeconds,
-        totalPausedMsRef.current + (localPauseStartRef.current ? (Date.now() - localPauseStartRef.current) : 0)
-      )
-      setSeconds(Math.ceil(remainingMs / 1000))
-    }, 250)
-    return () => clearInterval(id)
+    const blob = new Blob([`setInterval(() => postMessage('tick'), 250)`], { type: 'application/javascript' })
+    const worker = new Worker(URL.createObjectURL(blob))
+    worker.onmessage = () => {
+      const startedAtMs = startMillisRef.current
+      const totalPausedNow = totalPausedMsRef.current + (localPauseStartRef.current ? (Date.now() - localPauseStartRef.current) : 0)
+      const elapsedFocusSec = Math.floor((Date.now() - startedAtMs - totalPausedNow) / 1000)
+      const remaining = Math.max(0, plannedFocusSeconds - elapsedFocusSec)
+      setSeconds(prev => {
+        if (prev !== remaining) return remaining
+        return prev
+      })
+    }
+    return () => worker.terminate()
   }, [running, mode, currentSession, plannedFocusSeconds])
 
   useEffect(() => {
     if (running && mode !== 'focus') {
-      const id = setInterval(() => setSeconds(value => value <= 1 ? 0 : value - 1), 1000)
-      return () => clearInterval(id)
+      const blob = new Blob([`setInterval(() => postMessage('tick'), 250)`], { type: 'application/javascript' })
+      const worker = new Worker(URL.createObjectURL(blob))
+      worker.onmessage = () => {
+        const anchor = breakStartRef.current
+        const startRemaining = breakRemainingAtStartRef.current
+        if (!anchor) return
+        const elapsedMs = Date.now() - anchor
+        const remaining = Math.max(0, startRemaining - Math.floor(elapsedMs / 1000))
+        setSeconds(prev => {
+          if (prev !== remaining) return remaining
+          return prev
+        })
+      }
+      return () => worker.terminate()
     }
   }, [running, mode])
+
+  const strictModeRef = useRef(strictMode)
+  strictModeRef.current = strictMode
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && strictModeRef.current && currentSession && mode === 'focus') {
+        logInterruption()
+        showToast("Strict Mode: Interruption logged because you left the tab.")
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }, [currentSession, mode]) // we don't depend on running here, currentSession implies running/paused
 
   useEffect(() => {
     if (running && seconds === 0) completeSession()
@@ -143,17 +196,23 @@ export default function App() {
     function onVisible() {
       if (document.hidden) return
       if (mode === 'focus' && currentSession) {
-        const remainingMs = computeTrueRemaining(
-          startMillisRef.current,
-          plannedFocusSeconds,
-          totalPausedMsRef.current + (localPauseStartRef.current ? (Date.now() - localPauseStartRef.current) : 0)
-        )
-        setSeconds(Math.ceil(remainingMs / 1000))
+        const startedAtMs = startMillisRef.current
+        const totalPausedNow = totalPausedMsRef.current + (localPauseStartRef.current ? (Date.now() - localPauseStartRef.current) : 0)
+        const elapsedFocusSec = Math.floor((Date.now() - startedAtMs - totalPausedNow) / 1000)
+        const remaining = Math.max(0, plannedFocusSeconds - elapsedFocusSec)
+        setSeconds(remaining)
+      } else if (mode !== 'focus' && running) {
+        const anchor = breakStartRef.current
+        const startRemaining = breakRemainingAtStartRef.current
+        if (!anchor) return
+        const elapsedMs = Date.now() - anchor
+        const remaining = Math.max(0, startRemaining - Math.floor(elapsedMs / 1000))
+        setSeconds(remaining)
       }
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [mode, currentSession, plannedFocusSeconds])
+  }, [mode, currentSession, plannedFocusSeconds, running])
 
   useEffect(() => {
     function onStorage(e) {
@@ -248,8 +307,8 @@ export default function App() {
         } else {
           setRestoredBanner('This session was restored from the server.')
         }
-        const remainingMs = computeTrueRemaining(startMillisRef.current, fd, totalPausedMsRef.current + (localPauseStartRef.current ? (Date.now() - localPauseStartRef.current) : 0))
-        const remainingSec = Math.ceil(remainingMs / 1000)
+        const elapsedFocusSec = Math.floor((Date.now() - startMillisRef.current - totalPausedMsRef.current - (localPauseStartRef.current ? (Date.now() - localPauseStartRef.current) : 0)) / 1000)
+        const remainingSec = Math.max(0, fd - elapsedFocusSec)
         setCurrentSession(sess)
         setPlannedFocusSeconds(fd)
         setSeconds(remainingSec)
@@ -278,22 +337,43 @@ export default function App() {
 
   async function loadData() {
     try {
-      const [sessRes, dailyRes, heatRes] = await Promise.all([
+      const [sessRes, dailyRes, heatRes, summaryRes] = await Promise.allSettled([
         api('/sessions'),
         api('/analytics/daily'),
         api('/analytics/heatmap'),
+        api('/analytics/summary'),
       ])
-      setSessions(Array.isArray(sessRes.data) ? sessRes.data : [])
-      setDailyAnalytics(Array.isArray(dailyRes.data) ? dailyRes.data : [])
-      const padded = Array(24).fill(0)
-      if (Array.isArray(heatRes.data)) {
-        for (const row of heatRes.data) {
-          if (typeof row.hour === 'number' && row.hour >= 0 && row.hour < 24) {
-            padded[row.hour] = Number(row.count) || 0
+      if (sessRes.status === 'fulfilled') {
+        setSessions(Array.isArray(sessRes.value.data) ? sessRes.value.data : [])
+      } else {
+        if (sessRes.reason?.status === 401) { setAuthed(false); return }
+      }
+      if (dailyRes.status === 'fulfilled') {
+        setDailyAnalytics(Array.isArray(dailyRes.value.data) ? dailyRes.value.data : [])
+      }
+      if (heatRes.status === 'fulfilled') {
+        const padded = Array(24).fill(0)
+        if (Array.isArray(heatRes.value.data)) {
+          for (const row of heatRes.value.data) {
+            if (typeof row.hour === 'number' && row.hour >= 0 && row.hour < 24) {
+              padded[row.hour] = Number(row.count) || 0
+            }
           }
         }
+        setHeatmapData(padded)
       }
-      setHeatmapData(padded)
+      if (summaryRes.status === 'fulfilled' && summaryRes.value.data) {
+        const d = summaryRes.value.data
+        setSummaryStats({
+          streak: Number(d.streak) || 0,
+          consistency_pct: Number(d.consistency_pct) || 0,
+          active_days_last7: Number(d.active_days_last7) || 0,
+          weekly_minutes: Array.isArray(d.weekly_minutes) ? d.weekly_minutes : [],
+          tags_distribution: d.tags_distribution || {}
+        })
+      } else {
+        setSummaryStats({ streak: 0, consistency_pct: 0, active_days_last7: 0, weekly_minutes: [], tags_distribution: {} })
+      }
     } catch (err) {
       if (err.status === 401) setAuthed(false)
     }
@@ -329,6 +409,7 @@ export default function App() {
   }
 
   async function handleLogout() {
+    if (!window.confirm("Are you sure you want to log out?")) return
     try {
       await api('/auth/logout', { method: 'POST' })
     } catch {}
@@ -342,6 +423,7 @@ export default function App() {
     setSessions([])
     setDailyAnalytics([])
     setHeatmapData(Array(24).fill(0))
+    setSummaryStats({ streak: 0, consistency_pct: 0, active_days_last7: 0, weekly_minutes: [] })
     setRowInterruptions({})
     setExpandedRow(null)
     setTask('')
@@ -350,6 +432,8 @@ export default function App() {
     totalPausedMsRef.current = 0
     localPauseStartRef.current = null
     startMillisRef.current = 0
+    breakStartRef.current = 0
+    breakRemainingAtStartRef.current = 0
   }
 
   function burst(kind = 'leaf') {
@@ -375,16 +459,23 @@ export default function App() {
 
   async function startSession() {
     if (mode !== 'focus') {
+      breakStartRef.current = Date.now()
+      breakRemainingAtStartRef.current = seconds
       setRunning(true)
       burst('leaf')
       return
     }
     const focusMin = Math.max(1, Math.min(180, Number(durations.focus) || 25))
     const focusSec = focusMin * 60
+    
+    const tags = task.match(/#[\w-]+/g) || []
+    const cleanTags = tags.map(t => t.slice(1)) // remove '#'
+    const taskName = task
+    
     try {
       const { data } = await api('/sessions', {
         method: 'POST',
-        body: { start_time: new Date().toISOString(), focus_duration: focusSec }
+        body: { start_time: new Date().toISOString(), focus_duration: focusSec, task_name: taskName, tags: JSON.stringify(cleanTags) }
       })
       startMillisRef.current = sessionStartMillis(data)
       totalPausedMsRef.current = Number(data.paused_ms) || 0
@@ -433,9 +524,26 @@ export default function App() {
   }
 
   async function toggleRun() {
+    unlockAudio()
     if (mode !== 'focus') {
-      if (running) { setRunning(false); burst('stone') }
-      else { setRunning(true); burst('leaf') }
+      if (running) {
+        const anchor = breakStartRef.current
+        const startRemaining = breakRemainingAtStartRef.current
+        if (anchor) {
+          const elapsedMs = Date.now() - anchor
+          const remaining = Math.max(0, startRemaining - Math.floor(elapsedMs / 1000))
+          setSeconds(remaining)
+        }
+        setRunning(false)
+        breakStartRef.current = 0
+        breakRemainingAtStartRef.current = 0
+        burst('stone')
+      } else {
+        breakStartRef.current = Date.now()
+        breakRemainingAtStartRef.current = seconds
+        setRunning(true)
+        burst('leaf')
+      }
       return
     }
     if (!running && !currentSession) {
@@ -451,12 +559,11 @@ export default function App() {
       } else if (currentSession && currentSession.status === 'paused') {
         await patchPauseState('running')
       }
-      const remainingMs = computeTrueRemaining(
-        startMillisRef.current,
-        plannedFocusSeconds,
-        totalPausedMsRef.current
-      )
-      setSeconds(Math.ceil(remainingMs / 1000))
+      const startedAtMs = startMillisRef.current
+      const totalPausedNow = totalPausedMsRef.current
+      const elapsedFocusSec = Math.floor((Date.now() - startedAtMs - totalPausedNow) / 1000)
+      const remaining = Math.max(0, plannedFocusSeconds - elapsedFocusSec)
+      setSeconds(remaining)
       setRunning(true)
       burst('leaf')
       return
@@ -467,7 +574,12 @@ export default function App() {
     burst('stone')
   }
 
-  async function completeSession() {
+  async function stopEarly() {
+    await completeSession('stopped_early')
+  }
+
+  async function completeSession(statusOverride) {
+    const finalStatus = typeof statusOverride === 'string' ? statusOverride : 'completed'
     if (mode === 'focus' && currentSession) {
       const nowMs = Date.now()
       if (localPauseStartRef.current) {
@@ -480,7 +592,7 @@ export default function App() {
         const endHMS = new Date().toISOString().slice(11, 19)
         await api(`/sessions/${currentSession.sessionID}`, {
           method: 'PATCH',
-          body: { status: 'completed', end_time: endHMS, duration: actualElapsed, paused_ms: totalPausedMsRef.current, last_pause_start_iso: null }
+          body: { status: finalStatus, end_time: endHMS, duration: actualElapsed, paused_ms: totalPausedMsRef.current, last_pause_start_iso: null }
         })
         burst('leaf')
         if (sound) audio.current?.play().catch(() => {})
@@ -489,9 +601,15 @@ export default function App() {
         if (err.status === 403) { setForbiddenMsg(err.data?.error || 'Access denied'); return }
         showToast(err.data?.error || `Failed to complete: ${err.message}`)
       }
-    } else if (mode === 'focus' && sound) {
-      audio.current?.play().catch(() => {})
+    } else {
+      if (sound) audio.current?.play().catch(() => {})
       burst('leaf')
+    }
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification("Session Complete", {
+        body: mode === 'focus' ? "Great work! Time for a break." : "Break's over! Ready to focus?",
+      })
     }
     setCurrentSession(null)
     setRunning(false)
@@ -500,6 +618,8 @@ export default function App() {
     totalPausedMsRef.current = 0
     localPauseStartRef.current = null
     startMillisRef.current = 0
+    breakStartRef.current = 0
+    breakRemainingAtStartRef.current = 0
     localStorage.removeItem(PAUSE_BACKUP_KEY)
     setTimeout(loadData, 200)
   }
@@ -524,6 +644,8 @@ export default function App() {
       showToast('Complete or stop the current focus session first.')
       return
     }
+    breakStartRef.current = 0
+    breakRemainingAtStartRef.current = 0
     setMode(next); setRunning(false); setSeconds(durations[next] * 60); burst('leaf')
   }
   function changeScene(next) { if (next === scene) return; setScene(next); burst('leaf') }
@@ -533,13 +655,14 @@ export default function App() {
     }
     setRunning(false)
     if (mode === 'focus' && currentSession) {
-      const remainingMs = computeTrueRemaining(
-        startMillisRef.current,
-        plannedFocusSeconds,
-        totalPausedMsRef.current + (localPauseStartRef.current ? (Date.now() - localPauseStartRef.current) : 0)
-      )
-      setSeconds(Math.ceil(remainingMs / 1000))
+      const startedAtMs = startMillisRef.current
+      const totalPausedNow = totalPausedMsRef.current + (localPauseStartRef.current ? (Date.now() - localPauseStartRef.current) : 0)
+      const elapsedFocusSec = Math.floor((Date.now() - startedAtMs - totalPausedNow) / 1000)
+      const remaining = Math.max(0, plannedFocusSeconds - elapsedFocusSec)
+      setSeconds(remaining)
     } else {
+      breakStartRef.current = 0
+      breakRemainingAtStartRef.current = 0
       setSeconds(durations[mode] * 60)
     }
     burst('stone')
@@ -550,7 +673,9 @@ export default function App() {
     const cap = key === 'focus' ? 180 : 120
     const next = Math.max(1, Math.min(cap, Number(value) || 1))
     setDurations(d => ({ ...d, [key]: next }))
-    if (key === mode && !running && mode !== 'focus') setSeconds(next * 60)
+    if (key === mode && !running && mode !== 'focus') {
+      setSeconds(next * 60)
+    }
     if (key === 'focus' && !running && mode === 'focus' && !currentSession) {
       setPlannedFocusSeconds(next * 60)
       setSeconds(next * 60)
@@ -576,8 +701,14 @@ export default function App() {
   const todayFocusMinutes = dailyAnalytics.length > 0
     ? (dailyAnalytics[dailyAnalytics.length - 1].focus_minutes || 0)
     : 0
-  const activeDays = dailyAnalytics.filter(d => (d.focus_minutes || 0) > 0).length
-  const maxBar = dailyAnalytics.reduce((m, d) => Math.max(m, d.focus_minutes || 0), 0)
+  const maxBar = Math.max(
+    dailyAnalytics.reduce((m, d) => Math.max(m, d.focus_minutes || 0), 0),
+    summaryStats.weekly_minutes.reduce((m, d) => Math.max(m, d.focus_minutes || 0), 0),
+    0
+  )
+  const weeklyMinutesData = summaryStats.weekly_minutes && summaryStats.weekly_minutes.length === 7
+    ? summaryStats.weekly_minutes
+    : dailyAnalytics
   const maxHeat = heatmapData.reduce((m, c) => Math.max(m, c), 0)
 
   if (authed === null) {
@@ -604,6 +735,17 @@ export default function App() {
       : `Start ${MODES[mode].label.toLowerCase()}`
   const StartStopIcon = running ? Pause : Play
 
+  const presetSelectStyle = {
+    padding: '7px 10px',
+    borderRadius: '8px',
+    background: '#071713',
+    border: '1px solid rgba(208,228,211,.18)',
+    color: '#eff8ed',
+    fontSize: '11px',
+    outline: 'none',
+    cursor: 'pointer'
+  }
+
   return (
     <main className={`app tone-${activeScene.tone} ${running ? 'running' : ''}`}>
       <div className="scene-image" style={{ backgroundImage: `url(${activeScene.image})` }} />
@@ -617,7 +759,7 @@ export default function App() {
           </span>
         ))}
       </div>
-      <audio ref={audio} src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA=" />
+      <audio ref={audio} src="http://127.0.0.1:5000/static/notification.mp3" preload="auto" />
       {toast && <div className="toast">{toast}</div>}
       {forbiddenMsg && (
         <div className="toast toast-err"><AlertCircle size={14} /> {forbiddenMsg}</div>
@@ -679,15 +821,23 @@ export default function App() {
           >
             Log interruption
           </button>
+          {mode === 'focus' && currentSession && running && (
+            <button
+              className="intrusion-button"
+              style={{ marginLeft: '10px', background: 'rgba(239, 83, 80, 0.15)', color: '#ef5350', borderColor: 'rgba(239, 83, 80, 0.3)' }}
+              onClick={stopEarly}
+            >
+              Stop Early
+            </button>
+          )}
         </div>
         <div className="focus-input">
           <label>CURRENTLY FOCUSING ON</label>
           <input
             value={task}
             onChange={event => setTask(event.target.value)}
-            placeholder="What are you focusing on? (not saved to server)"
+            placeholder="E.g., Reviewing PRs #work #code"
           />
-          <small className="input-hint">This note is kept in-browser only and is not persisted to the backend.</small>
         </div>
       </section>
 
@@ -714,7 +864,7 @@ export default function App() {
           <div className="panel-heading">
             <div><label>YOUR RHYTHM</label><h2>Today, gently</h2></div>
           </div>
-          <div className="stats">
+          <div className="stats" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
             <div>
               <strong>{Math.floor(todayFocusMinutes / 60)}<small>h</small> {todayFocusMinutes % 60}<small>m</small></strong>
               <span>Today's focus</span>
@@ -724,17 +874,25 @@ export default function App() {
               <span>Sessions</span>
             </div>
             <div>
-              <strong>{activeDays}<small>/7</small></strong>
+              <strong>{summaryStats.active_days_last7}<small>/7</small></strong>
               <span>Active days</span>
+            </div>
+            <div>
+              <strong style={{ display: 'flex', alignItems: 'center', gap: '5px' }}><Flame size={18} style={{ color: '#e9a76b' }} /> {summaryStats.streak}</strong>
+              <span>Day streak</span>
+            </div>
+            <div>
+              <strong style={{ display: 'flex', alignItems: 'center', gap: '5px' }}><Target size={16} style={{ color: '#a6d5a2' }} /> {summaryStats.consistency_pct}<small>%</small></strong>
+              <span>Consistency</span>
             </div>
           </div>
           <div className="week">
             <label>THIS WEEK</label>
             <div className="bars">
-              {dailyAnalytics.map((day, index) => {
+              {weeklyMinutesData.map((day, index) => {
                 const h = maxBar > 0 ? Math.round(((day.focus_minutes || 0) / maxBar) * 100) : 0
                 const label = new Date(`${day.date}T00:00:00Z`).toLocaleDateString([], { weekday: 'short' }).charAt(0)
-                const isToday = index === dailyAnalytics.length - 1
+                const isToday = index === weeklyMinutesData.length - 1
                 return (
                   <div className={isToday ? 'today' : ''} key={day.date}>
                     <i style={{ height: `${Math.max(4, h)}%` }}/>
@@ -766,6 +924,26 @@ export default function App() {
               })}
             </div>
           </div>
+          <div className="tags-analytics">
+            <label>TOP TAGS (this range)</label>
+            <div className="tags-list">
+              {Object.keys(summaryStats.tags_distribution || {}).length === 0 ? (
+                <div className="tags-empty" style={{ opacity: 0.5, fontSize: '13px', paddingTop: '10px' }}>No tags used recently. Try adding #tags to your task!</div>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', paddingTop: '12px' }}>
+                  {Object.entries(summaryStats.tags_distribution || {})
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 8)
+                    .map(([tag, mins]) => (
+                      <div key={tag} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '12px', fontSize: '12px', color: '#eff8ed' }}>
+                        <span style={{ opacity: 0.6, marginRight: '4px' }}>#</span>{tag}
+                        <strong style={{ marginLeft: '6px', opacity: 0.9 }}>{mins}m</strong>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -788,7 +966,23 @@ export default function App() {
                 <time>{formatLocalTime(startUTC)}</time>
                 <b><Check size={12}/></b>
                 <div className="row-main">
-                  <p>Focused session</p>
+                  <p>
+                    {s.task_name || 'Focused session'}
+                    {s.status === 'stopped_early' && (
+                      <span style={{ fontSize: '10px', color: '#ffb3b3', border: '1px solid rgba(255,179,179,0.4)', padding: '1px 5px', borderRadius: '4px', marginLeft: '8px', background: 'rgba(255,179,179,0.1)' }}>Stopped early</span>
+                    )}
+                  </p>
+                  {s.tags && (() => {
+                    try {
+                      const tList = JSON.parse(s.tags)
+                      if (tList.length > 0) {
+                        return <div style={{ display: 'flex', gap: '5px', marginTop: '4px' }}>
+                          {tList.map(t => <span key={t} style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px', opacity: 0.7 }}>#{t}</span>)}
+                        </div>
+                      }
+                    } catch(e){}
+                    return null
+                  })()}
                   {s.interruption_count > 0 && <small className="int-count">{s.interruption_count} interruption{s.interruption_count === 1 ? '' : 's'}</small>}
                 </div>
                 <small>{mins} min</small>
@@ -798,7 +992,7 @@ export default function App() {
                 <div className="row-expand">
                   <div className="row-expand-meta">
                     <span className="meta-item">Started: {formatLocalDateTime(startUTC)}</span>
-                    <span className="meta-item">Status: {s.status}</span>
+                    <span className="meta-item">Status: {s.status === 'stopped_early' ? 'Stopped early' : 'Completed'}</span>
                   </div>
                   <label>Interruption log</label>
                   {ints == null && <div className="ints-loading">Loading interruptions…</div>}
@@ -849,6 +1043,10 @@ export default function App() {
             <div className="setting-row sound">
               <span><Volume2 size={16}/> Sound cues</span>
               <button className={`toggle ${sound ? 'on' : ''}`} onClick={() => setSound(value => !value)} aria-label="Toggle sound"><i/></button>
+            </div>
+            <div className="setting-row sound">
+              <span><Target size={16}/> Strict Mode <small style={{display:'block',opacity:0.6,fontSize:'11px',fontWeight:'normal'}}>Logs interruption if you leave the tab</small></span>
+              <button className={`toggle ${strictMode ? 'on' : ''}`} onClick={() => setStrictMode(value => !value)} aria-label="Toggle strict mode"><i/></button>
             </div>
             <button className="save-button" onClick={() => setSettingsOpen(false)}>Save changes</button>
           </div>
@@ -946,9 +1144,6 @@ function AuthScreen({ view, onToggle, onLogin, onSignup, error, forbidden }) {
               <>Already have an account? <button type="button" onClick={onToggle}>Sign in</button></>
             )}
           </div>
-          <small className="auth-hint">
-            Flask must be running on <code>127.0.0.1:5000</code> and Vite on <code>127.0.0.1:5173</code>.
-          </small>
         </form>
       </div>
     </main>

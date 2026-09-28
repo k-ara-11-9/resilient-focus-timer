@@ -28,6 +28,8 @@ SCHEMA_SQL = [
         status TEXT NOT NULL,
         paused_ms INTEGER DEFAULT 0,
         last_pause_start_iso TEXT,
+        task_name TEXT,
+        tags TEXT,
         FOREIGN KEY (user_id) REFERENCES User(id)
     )
     """,

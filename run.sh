@@ -26,12 +26,9 @@ source venv/bin/activate
 echo "Installing dependencies..."
 pip install -r requirements.txt --quiet
 
-# Run migration only if the database doesn't exist yet
-if [ ! -f "focus_timer.db" ]; then
-    echo "No database found - running migration..."
-    python migrate.py
-else
-    echo "Existing database found - skipping migration."
+# Generate a stable SECRET_KEY for local dev if not set
+if [ -z "$SECRET_KEY" ]; then
+    export SECRET_KEY="local_development_secret_key_12345"
 fi
 
 echo

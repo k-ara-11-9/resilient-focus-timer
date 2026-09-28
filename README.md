@@ -1,165 +1,78 @@
 # Resilient Focus Timer
 
-A Pomodoro-based focus timer with interruption logging and session history, built as part of a Software Development Lab (DSC3153) team project. The app tracks 25-minute focus sessions, lets a user log interruptions mid-session without breaking their timer, and keeps a local-first, offline-capable history of completed sessions.
+A modern, robust Pomodoro/Focus Timer built with a Flask API backend and a Vite+React frontend. 
 
-This repository covers **Sprint 1 (Release 1)** — the four Must-have stories from the project's backlog: starting/completing a timer, one-tap interruption logging, session history, and local-first storage.
+It is designed to handle common browser limitations (background throttling, tab visibility changes, accidental closures) and provide reliable tracking of focus sessions, interruptions, and task analytics.
 
----
+## Features
+
+- **Strict Mode**: Automatically logs an interruption whenever you navigate away from the tab or switch windows during a running session.
+- **Robust State Recovery**: Resyncs the timer perfectly upon tab restoration, even if the browser killed the tab or you closed it accidentally.
+- **Task Tags & Analytics**: Categorize sessions using #tags and visualize focus trends, streaks, and a GitHub-style heatmap.
+- **Audio Notifications**: Plays an alert when a focus session completes.
+- **Pause & Resume**: Supports pausing a session indefinitely without losing track of elapsed time across backend/frontend restarts.
+
+## Tech Stack
+
+- **Backend**: Python 3.10+, Flask 3, SQLite (via `sqlite3`)
+- **Frontend**: React 18, Vite, Recharts, TailwindCSS (for utility styling conceptually applied in vanilla CSS structure)
+- **Testing**: `pytest` for comprehensive backend and E2E lifecycle testing
+
+## Getting Started
+
+### Local Development
+
+Use the included launcher scripts which automatically provision a virtual environment, install dependencies, initialize the database (with migrations handled automatically on startup), and run the server.
+
+**Windows:**
+```bat
+run.bat
+```
+
+**macOS / Linux:**
+```bash
+./run.sh
+```
+
+Then, open `http://127.0.0.1:5000` in your browser.
+
+### Manual Setup (Without Script)
+
+1. Create a virtual environment: `python -m venv venv`
+2. Activate it: `venv\Scripts\activate` (Windows) or `source venv/bin/activate` (macOS/Linux)
+3. Install requirements: `pip install -r requirements.txt`
+4. Set a local secret key: `set SECRET_KEY=your_secret_key` (Windows) or `export SECRET_KEY=your_secret_key` (macOS/Linux)
+5. Start Flask: `flask run`
+
+### Frontend Assets
+
+The current implementation serves a bundled React app from the Flask backend (the built assets are in `static/`). The old vanilla JS assets from Release 1 are still present in `templates/` and `static/` but are deprecated in favor of the React implementation.
 
 ## Project Structure
 
-```
-resilient-focus-timer/
-│
-├── app.py                  # Flask app: routes + REST API endpoints
-├── migrate.py               # Creates focus_timer.db and its tables
-├── requirements.txt          # Runtime dependencies (Flask, flask-cors)
-├── requirements-dev.txt      # Additional dependencies for running tests
-├── run.bat                   # One-click setup + launch (Windows)
-│
-├── static/
-│   ├── script.js            # Timer logic, interruption logging, notifications
-│   ├── history.js           # Session history rendering
-│   ├── style.css
-│   └── notification.mp3
-│
-├── templates/
-│   ├── index.html            # Main Timer screen
-│   └── history.html          # Session History screen
-│
-├── tests/
-│   ├── test_e2e.py           # Timer start/pause/resume/complete flow
-│   ├── test_e2e_tm02.py      # Intrusion logging flow
-│   ├── test_e2e_lg01.py      # Session history flow
-│   ├── test_e2e_sy01.py      # Local-only storage verification
-│   ├── test_e2e_race.py
-│   ├── test_e2e_resync.py
-│   ├── test_e2e_recovery.py
-│   ├── test_get_history.py
-│   └── clean.py              # Dev utility: wipes all session/interruption data
-│
-├── docs/
-│   ├── TEST_RESULTS_TM02.md
-│   ├── TEST_RESULTS_LG01.md
-│   └── TEST_RESULTS_SY01.md
-│
-└── .github/workflows/ci.yml  # Build + lint check on every push
+- `app.py`: Flask application, route handlers, and API endpoints.
+- `schema.py`: Single source of truth for the SQLite database schema and database initialization logic.
+- `tests/`: Comprehensive test suite containing unit, integration, and E2E tests (`pytest`).
+- `frontend/`: The Vite+React frontend application source code.
+- `docs/API.md`: Detailed API route documentation.
+
+## Testing
+
+Run the test suite using `pytest`:
+
+```bash
+# Ensure venv is activated
+pytest -v
 ```
 
----
-
-## Schema
-
-| Table | Columns |
-|---|---|
-| `User` | `UserID` (PK) — intentionally a minimal stub; no Sprint 1 story requires distinguishing between users |
-| `Session` | `SessionID` (PK), `UserID` (FK), `date`, `start_time`, `end_time`, `duration`, `status` (`running` / `paused` / `completed` / `stopped_early`) |
-| `Interruption` | `InterruptionID` (PK), `SessionID` (FK), `timestamp` |
-
-`Session` is stored locally in SQLite by default (see **SY-01** below) — no cloud sync exists yet.
-
----
-
-## API Contract
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/sessions` | Start a new session |
-| `PATCH` | `/sessions/{id}` | Update a session's status (pause, resume, complete, stop early) |
-| `POST` | `/sessions/{id}/interruptions` | Log an interruption against a running session |
-| `GET` | `/sessions` | List completed sessions (history) |
-| `GET` | `/sessions?status=running` | Check if a session is currently active |
-
----
-
-## Setup
-
-### 1. Windows — one-click
-
-Double-click `run.bat`. It creates a virtual environment, installs dependencies, runs the database migration if needed, and starts the server at `http://127.0.0.1:5000`.
-
-### 2. Linux / macOS — one-click
-
-Run `./run.sh` from the repo root (make it executable first if needed:
-`chmod +x run.sh`). It creates a virtual environment, installs
-dependencies, runs the database migration if needed, and starts the
-server at http://127.0.0.1:5000.
-
-### 3. Manual (all platforms)
-
-**Windows (PowerShell):**
-```
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-python migrate.py
-python app.py
-```
-
-**Linux / macOS:**
-```
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python migrate.py
-python app.py
-```
-
-Open `http://127.0.0.1:5000` once the server starts.
-
-### 4. Running tests (optional)
-
-Tests use Playwright, which is not required to run the app itself:
-```
-pip install -r requirements-dev.txt
-playwright install chromium
-python tests/test_e2e.py
-```
-
----
-
-## Sprint 1 Stories
-
-- **TM-01** — Start, pause/resume, and complete a 25-minute focus timer
-- **TM-02** — Log an interruption with one tap without stopping the timer
-- **LG-01** — View a history of completed sessions
-- **SY-01** — Store session data locally by default, with no network calls during normal use
-
----
-
-## Notes
-
-- The countdown is timestamp-based (comparing the current time against a stored end-timestamp), not a simple decrementing counter — this keeps it accurate even if the browser tab is backgrounded.
-- `User` currently has no attributes beyond its primary key. The app is effectively single-user for Sprint 1; multi-user support would be a future story.
-- `duration` is currently fixed at 25 minutes for completed sessions, since Sprint 1's only flow is a fixed-length Pomodoro.
-- Post-release hardening addressed several multi-device edge cases: a session-recovery calculation bug, a race condition in delayed completion requests, and stale client state when a session is ended from a different device. See docs/ for details.
-
----
+The repository currently maintains a 100% pass rate (27/27 tests).
 
 ## Known Limitations
 
-This release covers Sprint 1's Must-have stories only. The following are deliberate scope boundaries, not bugs:
+- **Timezone Drift**: Analytics bucketing (`/analytics/daily` and `/analytics/heatmap`) currently relies on timezone resolution via `app.py`. If a user crosses timezone boundaries between starting a session and viewing analytics, date boundary buckets might misalign.
+- **Frontend Consolidation**: The React app operates alongside legacy vanilla JS code. Vite build output must currently be manually transferred to `static/` and `templates/` for Flask to serve it correctly, which complicates deployment. Consolidating this build pipeline is a pending priority.
+- **E2E Tests Structure**: The old `test_e2e.py` still expects legacy DOM selectors (from the Vanilla JS app). It needs a complete rewrite to utilize React-specific classes and test IDs.
 
-- **Single-user, single-session by design.** The `User` table is a minimal stub with no authentication. Every visitor to a deployed instance shares the same database and the same "current session" — if one person starts a timer, anyone else who opens the app sees that same session running, not a fresh one. Multi-user support is out of scope for Sprint 1.
-- **No cloud sync.** Data is stored locally in SQLite only (`SY-01`). Multi-device sync (`SY-02`) is a planned future story, not yet implemented.
-- **Fixed 25-minute sessions.** `duration` is not yet configurable or dynamically computed for partial sessions — every completed session is recorded as 25 minutes by design.
-- **Development server only.** The app currently runs on Flask's built-in development server, which is not intended for production traffic. A production WSGI server (e.g. gunicorn) would be the next step for a public, multi-user deployment.
-- **The live interruption counter is per-device, not per-session.** It tracks clicks made on the current device only and does not sync in real time across devices sharing the same session. The final count shown in History is always accurate, computed directly from stored data — only the live on-screen badge during an active session can under-count in a multi-device scenario.
+## API Documentation
 
----
-
-## License
-
-See [LICENSE](LICENSE).
-
----
-
-## Roadmap
-
-- [x] TM-01 — Focus timer (start/pause/resume/complete)
-- [x] TM-02 — Interruption logging
-- [x] LG-01 — Session history
-- [x] SY-01 — Local-first storage
-- [ ] SY-02 — Optional encrypted cloud sync
-- [ ] Context-Aware Analytics (charts, heatmaps)
-- [ ] Smart Task Engine (duplicate-detecting task list)
+See [API.md](docs/API.md) for full endpoint specifications.
