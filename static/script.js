@@ -6,24 +6,74 @@ const statusDisplay = document.getElementById('statusDisplay');
 const progressCircle = document.querySelector('.progress-ring__circle');
 const notificationSound = document.getElementById('notificationSound');
 const stopEarlyBtn = document.getElementById('stopEarlyBtn');
+const durationSelect = document.getElementById('durationSelect');
+const warningBanner = document.getElementById('warningBanner');
 
-const DURATION_MS = 25 * 60 * 1000;
-const CIRCUMFERENCE = 2 * Math.PI * 45; // ~282.7
+const DEFAULT_DURATION_MS = 25 * 60 * 1000;
+const CIRCUMFERENCE = 2 * Math.PI * 45;
 
-let state = 'idle'; // 'idle', 'running', 'paused', 'completed'
+let state = 'idle';
 let elapsedMs = 0;
 let sessionEndTime = null;
 let animationFrameId = null;
 let currentSessionId = null;
 let interruptionCount = 0;
-let patchInFlight = false; // Prevent race conditions
+let patchInFlight = false;
+let currentFocusDurationMs = DEFAULT_DURATION_MS;
 
 progressCircle.style.strokeDasharray = CIRCUMFERENCE;
 progressCircle.style.strokeDashoffset = 0;
 
-// Load from local storage
+function hideWarning() {
+    if (warningBanner) {
+        warningBanner.style.display = 'none';
+    }
+}
+
+function showWarning(msg) {
+    if (warningBanner) {
+        warningBanner.style.display = 'block';
+        warningBanner.innerHTML = `
+            <span>${msg}</span>
+            <button onclick="document.getElementById('warningBanner').style.display='none'">Dismiss</button>
+        `;
+    }
+}
+
+function getSelectedDurationMs() {
+    if (durationSelect && durationSelect.value) {
+        const minutes = parseInt(durationSelect.value, 10);
+        if (!isNaN(minutes) && minutes > 0) {
+            return minutes * 60 * 1000;
+        }
+    }
+    return DEFAULT_DURATION_MS;
+}
+
+if (durationSelect) {
+    const savedMinutes = localStorage.getItem('focusTimer_preferredMinutes');
+    if (savedMinutes) {
+        durationSelect.value = savedMinutes;
+    }
+    currentFocusDurationMs = getSelectedDurationMs();
+    durationSelect.addEventListener('change', () => {
+        const mins = parseInt(durationSelect.value, 10);
+        if (!isNaN(mins)) {
+            localStorage.setItem('focusTimer_preferredMinutes', mins.toString());
+        }
+        if (state === 'idle' || state === 'completed') {
+            currentFocusDurationMs = getSelectedDurationMs();
+            updateUI(currentFocusDurationMs);
+        }
+    });
+}
+
 async function loadState() {
     const savedState = localStorage.getItem('focusTimer_state');
+    const savedDuration = parseInt(localStorage.getItem('focusTimer_focusDurationMs'), 10);
+    if (!isNaN(savedDuration) && savedDuration > 0) {
+        currentFocusDurationMs = savedDuration;
+    }
     if (savedState) {
         state = savedState;
         elapsedMs = parseInt(localStorage.getItem('focusTimer_elapsedMs'), 10) || 0;
@@ -32,17 +82,18 @@ async function loadState() {
         currentSessionId = localStorage.getItem('focusTimer_sessionId');
         interruptionCount = parseInt(localStorage.getItem('focusTimer_interruptionCount'), 10) || 0;
         updateIntrusionCountUI();
-        
+
         if (state === 'running') {
+            resyncNow();
             tick();
         } else {
-            updateUI(state === 'completed' ? 0 : DURATION_MS - elapsedMs);
+            updateUI(state === 'completed' ? 0 : currentFocusDurationMs - elapsedMs);
         }
     } else {
-        updateUI(DURATION_MS);
+        currentFocusDurationMs = getSelectedDurationMs();
+        updateUI(currentFocusDurationMs);
     }
 
-    // Verify button state with server
     try {
         const res = await fetch('/sessions?status=running', { credentials: 'include' });
         if (res.status === 401) {
@@ -52,18 +103,45 @@ async function loadState() {
         if (res.ok) {
             const data = await res.json();
             const serverIsRunning = data.length > 0;
-            
+
             if (serverIsRunning) {
                 const serverSession = data[0];
-                if (state !== 'running' || currentSessionId != serverSession.sessionID) {
+                const serverFocusMs = serverSession.focus_duration ? serverSession.focus_duration * 1000 : DEFAULT_DURATION_MS;
+                const serverPausedMs = serverSession.paused_ms || 0;
+                const serverStatus = serverSession.status;
+
+                currentFocusDurationMs = serverFocusMs;
+                currentSessionId = serverSession.sessionID;
+
+                const startTimestamp = new Date(`${serverSession.date}T${serverSession.start_time}Z`).getTime();
+                const nowTs = Date.now();
+                const wallClockElapsed = nowTs - startTimestamp;
+                const trueElapsedMs = Math.max(0, wallClockElapsed - serverPausedMs);
+
+                if (serverStatus === 'paused') {
+                    state = 'paused';
+                    elapsedMs = Math.min(trueElapsedMs, currentFocusDurationMs);
+                    sessionEndTime = null;
+                    if (animationFrameId) {
+                        cancelAnimationFrame(animationFrameId);
+                        animationFrameId = null;
+                    }
+                    hideWarning();
+                    saveState();
+                    updateUI(currentFocusDurationMs - elapsedMs);
+                } else {
                     state = 'running';
-                    currentSessionId = serverSession.sessionID;
-                    if (!sessionEndTime) {
-                        const startTimestamp = new Date(`${serverSession.date}T${serverSession.start_time}Z`).getTime();
-                        sessionEndTime = startTimestamp + DURATION_MS;
-                        elapsedMs = Date.now() - startTimestamp;
+                    elapsedMs = Math.min(trueElapsedMs, currentFocusDurationMs);
+                    sessionEndTime = startTimestamp + currentFocusDurationMs + serverPausedMs;
+
+                    if (localStorage.getItem('focusTimer_warned_reload') !== '1') {
+                        showWarning('Recovered running session from server. Pause state and client ticks did not survive reload — synced from server.');
+                        localStorage.setItem('focusTimer_warned_reload', '1');
+                    } else {
+                        hideWarning();
                     }
                     saveState();
+                    resyncNow();
                     tick();
                 }
             } else {
@@ -88,14 +166,13 @@ async function loadState() {
                         resetTimer();
                         showToast("This session was ended on another device");
                     } else {
-                        // Server has no running session; fix local state
-                        state = 'paused'; 
+                        state = 'paused';
                         if (animationFrameId) {
                             cancelAnimationFrame(animationFrameId);
                             animationFrameId = null;
                         }
                         saveState();
-                        updateUI(DURATION_MS - (sessionEndTime ? sessionEndTime - Date.now() : 0));
+                        updateUI(currentFocusDurationMs - (sessionEndTime ? Math.max(0, sessionEndTime - Date.now()) : 0));
                     }
                 }
             }
@@ -109,6 +186,7 @@ async function loadState() {
 function saveState() {
     localStorage.setItem('focusTimer_state', state);
     localStorage.setItem('focusTimer_elapsedMs', elapsedMs.toString());
+    localStorage.setItem('focusTimer_focusDurationMs', currentFocusDurationMs.toString());
     if (sessionEndTime) {
         localStorage.setItem('focusTimer_sessionEndTime', sessionEndTime.toString());
     } else {
@@ -133,31 +211,42 @@ function updateIntrusionCountUI() {
 }
 
 function formatTime(ms) {
-    const totalSeconds = Math.ceil(ms / 1000);
+    const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
 function updateUI(remainingMs) {
+    remainingMs = Math.max(0, remainingMs);
     const timeStr = formatTime(remainingMs);
     timeDisplay.textContent = timeStr;
     statusDisplay.textContent = state;
-    
+
     if (state === 'running' || state === 'paused') {
         document.title = `${timeStr} - Focus Timer`;
     } else {
         document.title = "Resilient Focus Timer";
     }
-    
-    const progress = (DURATION_MS - remainingMs) / DURATION_MS;
-    const offset = progress * CIRCUMFERENCE;
+
+    const progress = currentFocusDurationMs > 0
+        ? (currentFocusDurationMs - remainingMs) / currentFocusDurationMs
+        : 0;
+    const offset = Math.max(0, Math.min(1, progress)) * CIRCUMFERENCE;
     progressCircle.style.strokeDashoffset = offset;
-    
+
     if (state === 'paused') {
         progressCircle.classList.add('paused');
     } else {
         progressCircle.classList.remove('paused');
+    }
+
+    if (durationSelect) {
+        if (state === 'idle' || state === 'completed') {
+            durationSelect.disabled = false;
+        } else {
+            durationSelect.disabled = true;
+        }
     }
 
     if (state === 'idle') {
@@ -176,6 +265,19 @@ function updateUI(remainingMs) {
         actionBtn.textContent = 'Start New';
         intrusionBtn.disabled = true;
         if (stopEarlyBtn) stopEarlyBtn.style.display = 'none';
+    }
+}
+
+function resyncNow() {
+    if (state === 'running' && sessionEndTime) {
+        const now = Date.now();
+        let remainingMs = sessionEndTime - now;
+        if (remainingMs <= 0) {
+            remainingMs = 0;
+            completeSession();
+            return;
+        }
+        updateUI(remainingMs);
     }
 }
 
@@ -198,21 +300,23 @@ async function startTimer() {
     const initialState = state;
     const sessionIdToResume = currentSessionId;
     const elapsedMsToResume = elapsedMs;
+    const pausedSnapshotBeforeResume = parseInt(localStorage.getItem('focusTimer_serverPausedMs'), 10) || 0;
 
-    // If starting a fresh session
     if (initialState === 'idle' || initialState === 'completed') {
+        currentFocusDurationMs = getSelectedDurationMs();
         const startTimeIso = new Date().toISOString();
-        
+        const focusDurationSecs = Math.round(currentFocusDurationMs / 1000);
+
         try {
             const res = await fetch('/sessions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start_time: startTimeIso }),
+                body: JSON.stringify({ start_time: startTimeIso, focus_duration: focusDurationSecs }),
                 credentials: 'include'
             });
             if (res.status === 401) { window.location.href = '/login'; return; }
             const data = await res.json();
-            
+
             if (res.status === 409) {
                 alert("A session is already running on this server. Please complete or stop it first.");
                 return;
@@ -220,21 +324,25 @@ async function startTimer() {
                 console.error("Error creating session:", data);
                 return;
             }
-            
+
             currentSessionId = data.sessionID;
             elapsedMs = 0;
+            localStorage.setItem('focusTimer_serverPausedMs', '0');
         } catch (e) {
             console.error("Failed to reach server:", e);
             showToast("can't reach server", true);
             return;
         }
     } else if (initialState === 'paused') {
-        // Resuming from pause
         try {
             const res = await fetch(`/sessions/${sessionIdToResume}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'running' }),
+                body: JSON.stringify({
+                    status: 'running',
+                    paused_ms: pausedSnapshotBeforeResume,
+                    last_pause_start_iso: null
+                }),
                 credentials: 'include'
             });
             if (res.status === 401) { window.location.href = '/login'; return; }
@@ -250,9 +358,11 @@ async function startTimer() {
     }
 
     state = 'running';
-    sessionEndTime = Date.now() + DURATION_MS - (initialState === 'paused' ? elapsedMsToResume : 0);
+    sessionEndTime = Date.now() + currentFocusDurationMs - (initialState === 'paused' ? elapsedMsToResume : 0);
+    hideWarning();
+    localStorage.removeItem('focusTimer_warned_reload');
     saveState();
-    updateUI(DURATION_MS - (initialState === 'paused' ? elapsedMsToResume : 0));
+    updateUI(currentFocusDurationMs - (initialState === 'paused' ? elapsedMsToResume : 0));
     tick();
 }
 
@@ -260,24 +370,41 @@ async function pauseTimer() {
     const sessionIdToPause = currentSessionId;
     const endTimeToPause = sessionEndTime;
 
+    const nowTs = Date.now();
     state = 'paused';
-    // Freeze elapsed time accurately based on Date.now()
-    elapsedMs = DURATION_MS - (endTimeToPause - Date.now());
+    elapsedMs = currentFocusDurationMs - Math.max(0, (endTimeToPause || (nowTs + currentFocusDurationMs)) - nowTs);
     if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
     }
+
+    const lastPauseIso = new Date(nowTs).toISOString();
+    const priorPaused = parseInt(localStorage.getItem('focusTimer_serverPausedMs'), 10) || 0;
+    const justPausedForMs = endTimeToPause ? Math.max(0, nowTs - (endTimeToPause + elapsedMs - currentFocusDurationMs)) : 0;
+    const accumulatedPausedMs = priorPaused + (justPausedForMs > 0 ? justPausedForMs : 0);
+    localStorage.setItem('focusTimer_serverPausedMs', accumulatedPausedMs.toString());
+
     saveState();
-    updateUI(DURATION_MS - elapsedMs);
-    
+    updateUI(currentFocusDurationMs - elapsedMs);
+
     try {
         const res = await fetch(`/sessions/${sessionIdToPause}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'paused' }),
+            body: JSON.stringify({
+                status: 'paused',
+                paused_ms: accumulatedPausedMs,
+                last_pause_start_iso: lastPauseIso
+            }),
             credentials: 'include'
         });
         if (res.status === 401) { window.location.href = '/login'; return; }
+        if (res.ok) {
+            const updated = await res.json();
+            if (typeof updated.paused_ms === 'number') {
+                localStorage.setItem('focusTimer_serverPausedMs', updated.paused_ms.toString());
+            }
+        }
     } catch (e) {
         console.error("Failed to pause session on server:", e);
         showToast("can't reach server", true);
@@ -287,14 +414,10 @@ async function pauseTimer() {
 async function completeSession() {
     if (state === 'completed' || patchInFlight) return;
 
-    // Capture immediately, before any await — prevents a stale/delayed
-    // call from later targeting a different session if globals change.
     const sessionIdToComplete = currentSessionId;
     const endTimeToRecord = new Date(sessionEndTime || Date.now());
-    // Snapshot elapsed focus time now — same formula stopEarlyBtn uses.
-    // elapsedMs tracks accumulated focus time (excludes paused periods).
-    const elapsedMsSnapshot = DURATION_MS; // Full session completed = full duration
-    const durationSecs = Math.round(elapsedMsSnapshot / 1000);
+    const durationSecs = Math.round(currentFocusDurationMs / 1000);
+    const pausedForServer = parseInt(localStorage.getItem('focusTimer_serverPausedMs'), 10) || 0;
 
     patchInFlight = true;
     state = 'completed';
@@ -303,14 +426,13 @@ async function completeSession() {
         animationFrameId = null;
     }
     saveState();
-    
-    // Attempt to play sound
+
     try {
         await notificationSound.play();
     } catch (e) {
         console.log('Audio play failed', e);
     }
-    
+
     if ("Notification" in window && Notification.permission === "granted") {
         try {
             new Notification("Focus session complete!");
@@ -323,17 +445,19 @@ async function completeSession() {
     }
 
     updateUI(0);
-    
+
     const endTimeIso = endTimeToRecord.toISOString().split('T')[1].split('.')[0];
 
     try {
         const res = await fetch(`/sessions/${sessionIdToComplete}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
                 status: 'completed',
                 end_time: endTimeIso,
-                duration: durationSecs
+                duration: durationSecs,
+                paused_ms: pausedForServer,
+                last_pause_start_iso: null
             }),
             credentials: 'include'
         });
@@ -343,6 +467,7 @@ async function completeSession() {
         showToast("can't reach server", true);
     } finally {
         patchInFlight = false;
+        localStorage.removeItem('focusTimer_serverPausedMs');
     }
 }
 
@@ -352,26 +477,28 @@ function resetTimer() {
     sessionEndTime = null;
     currentSessionId = null;
     interruptionCount = 0;
+    currentFocusDurationMs = getSelectedDurationMs();
+    localStorage.removeItem('focusTimer_serverPausedMs');
+    localStorage.removeItem('focusTimer_warned_reload');
     updateIntrusionCountUI();
     saveState();
-    updateUI(DURATION_MS);
+    updateUI(currentFocusDurationMs);
 }
 
 let audioUnlocked = false;
 
 actionBtn.addEventListener('click', async () => {
     if (!audioUnlocked) {
-        // Unlock audio on first user interaction to bypass autoplay restrictions
         notificationSound.play().catch(() => {});
         notificationSound.pause();
         notificationSound.currentTime = 0;
         audioUnlocked = true;
     }
-    
+
     if ("Notification" in window && Notification.permission === "default") {
         Notification.requestPermission().catch(e => console.error("Notification permission request failed", e));
     }
-    
+
     actionBtn.disabled = true;
     try {
         if (state === 'idle' || state === 'completed') {
@@ -380,7 +507,7 @@ actionBtn.addEventListener('click', async () => {
         } else if (state === 'running') {
             await pauseTimer();
         } else if (state === 'paused') {
-            await startTimer(); // Actually it resumes
+            await startTimer();
         }
     } finally {
         actionBtn.disabled = false;
@@ -398,37 +525,42 @@ function showToast(message, isError = false) {
     toast.className = 'toast' + (isError ? ' error' : '');
     toast.textContent = message;
     container.appendChild(toast);
-    
+
     setTimeout(() => {
         toast.style.opacity = '0';
         setTimeout(() => toast.remove(), 300);
-    }, 1500);
+    }, 2500);
 }
 
 if (stopEarlyBtn) {
     stopEarlyBtn.addEventListener('click', async () => {
         if (!currentSessionId || (state !== 'running' && state !== 'paused')) return;
-        
+
         const sessionIdToStop = currentSessionId;
-        const elapsedMsToStop = (state === 'running' && sessionEndTime) ? DURATION_MS - (sessionEndTime - Date.now()) : elapsedMs;
+        const elapsedMsToStop = (state === 'running' && sessionEndTime)
+            ? currentFocusDurationMs - Math.max(0, sessionEndTime - Date.now())
+            : elapsedMs;
+        const pausedForServer = parseInt(localStorage.getItem('focusTimer_serverPausedMs'), 10) || 0;
 
         stopEarlyBtn.disabled = true;
         try {
             const trueEndTime = new Date();
             const endTimeIso = trueEndTime.toISOString().split('T')[1].split('.')[0];
             const durationSecs = Math.round(elapsedMsToStop / 1000);
-            
+
             const res = await fetch(`/sessions/${sessionIdToStop}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     status: 'stopped_early',
                     end_time: endTimeIso,
-                    duration: durationSecs
+                    duration: durationSecs,
+                    paused_ms: pausedForServer,
+                    last_pause_start_iso: null
                 }),
                 credentials: 'include'
             });
-            
+
             if (res.status === 401) { window.location.href = '/login'; return; }
             if (res.ok) {
                 if (animationFrameId) {
@@ -452,7 +584,7 @@ if (stopEarlyBtn) {
 let intrusionInFlight = false;
 intrusionBtn.addEventListener('click', async () => {
     if (state !== 'running' || !currentSessionId || intrusionInFlight) return;
-    
+
     const sessionIdToInterrupt = currentSessionId;
 
     intrusionInFlight = true;
@@ -482,29 +614,36 @@ intrusionBtn.addEventListener('click', async () => {
     }
 });
 
-// Handle visibility changes to resync the timer when returning to tab
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && state === 'running') {
-        tick();
+    if (document.visibilityState === 'visible') {
+        if (state === 'running') {
+            resyncNow();
+            tick();
+        } else if (state === 'paused') {
+            updateUI(currentFocusDurationMs - elapsedMs);
+        }
     }
 });
 
-// Update title while backgrounded (since requestAnimationFrame pauses)
 setInterval(() => {
-    if (document.visibilityState === 'hidden' && state === 'running') {
-        const now = Date.now();
-        let remainingMs = sessionEndTime - now;
-        if (remainingMs <= 0) {
-            remainingMs = 0;
-            completeSession();
+    if (state === 'running') {
+        if (document.visibilityState === 'hidden') {
+            const now = Date.now();
+            let remainingMs = sessionEndTime ? sessionEndTime - now : 0;
+            if (remainingMs <= 0) {
+                remainingMs = 0;
+                completeSession();
+            } else {
+                const timeStr = formatTime(remainingMs);
+                document.title = `${timeStr} - Focus Timer`;
+                timeDisplay.textContent = timeStr;
+            }
         } else {
-            const timeStr = formatTime(remainingMs);
-            document.title = `${timeStr} - Focus Timer`;
+            resyncNow();
         }
     }
 }, 1000);
 
-// Initialize UI from local storage
 loadState();
 
 function showFallbackBanner() {

@@ -305,3 +305,79 @@ main {
     background-color: #d32f2f;
     color: #fff;
 }
+
+.duration-picker {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding: 12px 16px;
+    background: #2b2422;
+    border: 1px solid #3d3432;
+    border-radius: 12px;
+}
+
+.duration-picker label {
+    color: #a49692;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.duration-picker select {
+    background-color: #1a1514;
+    color: #ffffff;
+    border: 1px solid #3d3432;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.duration-picker select:hover:not(:disabled) {
+    border-color: #ff9d76;
+}
+
+.duration-picker select:focus {
+    outline: none;
+    border-color: #ff9d76;
+}
+
+.duration-picker select:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.warning-banner {
+    width: 100%;
+    background-color: #5c4a1e;
+    color: #ffd78a;
+    border: 1px solid #8a6d2b;
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.warning-banner button {
+    background: none;
+    border: 1px solid #8a6d2b;
+    color: #ffd78a;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.warning-banner button:hover {
+    background-color: #8a6d2b;
+}

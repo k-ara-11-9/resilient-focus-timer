@@ -66,3 +66,28 @@ def test_create_session_invalid_durations(client):
         assert resp.status_code == 400
         data = resp.get_json()
         assert 'error' in data
+
+def test_running_session_returns_focus_duration(client):
+    # Log in
+    client.post('/auth/login', json={'username': 'testuser', 'password': 'testpass'})
+
+    # Create running session with custom focus_duration=900 (15 min)
+    create_resp = client.post('/sessions', json={
+        'start_time': '2023-06-15T09:00:00Z',
+        'focus_duration': 900
+    })
+    assert create_resp.status_code == 201
+
+    # Query running sessions
+    resp = client.get('/sessions?status=running')
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert isinstance(payload, list)
+    assert len(payload) == 1
+    sess = payload[0]
+    assert sess['focus_duration'] == 900
+    # Confirm all original fields still present and unchanged
+    assert 'sessionID' in sess
+    assert 'date' in sess
+    assert 'start_time' in sess
+    assert sess['status'] == 'running'

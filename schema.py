@@ -26,6 +26,8 @@ SCHEMA_SQL = [
         duration INTEGER,
         focus_duration INTEGER,
         status TEXT NOT NULL,
+        paused_ms INTEGER DEFAULT 0,
+        last_pause_start_iso TEXT,
         FOREIGN KEY (user_id) REFERENCES User(id)
     )
     """,

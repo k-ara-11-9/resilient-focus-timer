@@ -48,8 +48,27 @@ def init_db():
     create_tables(conn)
     conn.close()
 
+def migrate_add_pause_columns():
+    """Non-destructive ALTER TABLE: adds paused_ms and last_pause_start_iso
+    columns to Session if they are missing.  Uses PRAGMA table_info to be
+    re-entrant and idempotent on every server restart.  Existing rows keep
+    their data; new columns default to 0 / NULL respectively."""
+    conn = sqlite3.connect(DB_NAME)
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(Session)")
+        cols = {row[1] for row in cur.fetchall()}
+        if 'paused_ms' not in cols:
+            cur.execute("ALTER TABLE Session ADD COLUMN paused_ms INTEGER DEFAULT 0")
+        if 'last_pause_start_iso' not in cols:
+            cur.execute("ALTER TABLE Session ADD COLUMN last_pause_start_iso TEXT")
+        conn.commit()
+    finally:
+        conn.close()
+
 # Auto-initialize on import so both `flask run` and `python app.py` work.
 init_db()
+migrate_add_pause_columns()
 
 def login_required(f):
     @wraps(f)
@@ -139,16 +158,23 @@ def get_sessions():
     cursor = conn.cursor()
     
     if status_filter == 'running':
-        cursor.execute("SELECT SessionID, date, start_time, status FROM Session WHERE status = 'running' AND user_id = ?", (user_id,))
+        cursor.execute(
+            "SELECT SessionID, date, start_time, status, focus_duration, paused_ms, last_pause_start_iso "
+            "FROM Session WHERE status IN ('running', 'paused') AND user_id = ?",
+            (user_id,)
+        )
         sess = cursor.fetchone()
         conn.close()
-        
+
         if sess:
             return jsonify([{
                 'sessionID': sess['SessionID'],
                 'date': sess['date'],
                 'start_time': sess['start_time'],
-                'status': sess['status']
+                'status': sess['status'],
+                'focus_duration': sess['focus_duration'],
+                'paused_ms': sess['paused_ms'] if sess['paused_ms'] is not None else 0,
+                'last_pause_start_iso': sess['last_pause_start_iso']
             }]), 200
         else:
             return jsonify([]), 200
@@ -244,7 +270,9 @@ def create_session():
         'sessionID': session_id,
         'start_time': start_time_raw,
         'status': 'running',
-        'focus_duration': focus_duration
+        'focus_duration': focus_duration,
+        'paused_ms': 0,
+        'last_pause_start_iso': None
     }), 201
 
 @app.route('/sessions/<int:session_id>', methods=['GET'])
@@ -304,14 +332,35 @@ def update_session(session_id):
     if current_status in ['completed', 'stopped_early']:
         conn.close()
         return jsonify({'error': 'Cannot update a completed or stopped session'}), 409
-        
-    if current_status == new_status:
+
+    if current_status == new_status and not ('paused_ms' in data or 'last_pause_start_iso' in data or 'end_time' in data or 'duration' in data):
         conn.close()
         return jsonify({'error': f'Session is already {new_status}'}), 409
 
     # Update session
     end_time = data.get('end_time', sess['end_time'])
     duration = data.get('duration', sess['duration'])
+
+    paused_ms = sess['paused_ms'] if sess['paused_ms'] is not None else 0
+    if 'paused_ms' in data and data['paused_ms'] is not None:
+        try:
+            val = int(data['paused_ms'])
+            if val < 0:
+                conn.close()
+                return jsonify({'error': 'paused_ms must be >= 0'}), 400
+            paused_ms = val
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({'error': 'paused_ms must be an integer'}), 400
+
+    last_pause = data.get('last_pause_start_iso', sess['last_pause_start_iso'])
+    if last_pause is not None and last_pause != '':
+        # Basic shape check — must have a T
+        if 'T' not in str(last_pause):
+            conn.close()
+            return jsonify({'error': 'last_pause_start_iso must be a full ISO string'}), 400
+    else:
+        last_pause = None
 
     if end_time and sess['start_time']:
         try:
@@ -321,7 +370,7 @@ def update_session(session_id):
             diff = (end_t - start_t).total_seconds()
             if diff < 0:
                 diff += 24 * 3600 # Account for midnight crossing
-            
+
             # If the calculated duration is suspiciously large (e.g. > 12 hours),
             # it means end_time was actually earlier in the day (stale completion bug)
             if diff > 12 * 3600:
@@ -331,11 +380,11 @@ def update_session(session_id):
             pass
 
     cursor.execute(
-        "UPDATE Session SET status = ?, end_time = ?, duration = ? WHERE SessionID = ?",
-        (new_status, end_time, duration, session_id)
+        "UPDATE Session SET status = ?, end_time = ?, duration = ?, paused_ms = ?, last_pause_start_iso = ? WHERE SessionID = ?",
+        (new_status, end_time, duration, paused_ms, last_pause, session_id)
     )
     conn.commit()
-    
+
     # Fetch updated row to return
     cursor.execute("SELECT * FROM Session WHERE SessionID = ?", (session_id,))
     updated_session = cursor.fetchone()
@@ -345,7 +394,10 @@ def update_session(session_id):
         'sessionID': updated_session['SessionID'],
         'status': updated_session['status'],
         'duration': updated_session['duration'],
-        'end_time': updated_session['end_time']
+        'end_time': updated_session['end_time'],
+        'focus_duration': updated_session['focus_duration'],
+        'paused_ms': updated_session['paused_ms'] if updated_session['paused_ms'] is not None else 0,
+        'last_pause_start_iso': updated_session['last_pause_start_iso']
     }), 200
 
 @app.route('/sessions/<int:session_id>/interruptions', methods=['POST'])
