@@ -559,7 +559,7 @@ def analytics_daily():
         if not start_date or not end_date:
             return jsonify({'error': 'start and end must be YYYY-MM-DD'}), 400
     else:
-        end_date = date.today()
+        end_date = datetime.now(IST_TZ).date()
         start_date = end_date - timedelta(days=6)
         
     if start_date > end_date:
@@ -654,7 +654,7 @@ def analytics_heatmap():
         if not start_date or not end_date:
             return jsonify({'error': 'start and end must be YYYY-MM-DD'}), 400
     else:
-        end_date = date.today()
+        end_date = datetime.now(IST_TZ).date()
         start_date = end_date - timedelta(days=6)
 
     if start_date > end_date:
@@ -714,7 +714,7 @@ def analytics_summary():
 
     from datetime import date, datetime, timedelta as td_
 
-    end_date = date.today()
+    end_date = datetime.now(IST_TZ).date()
     start_date = end_date - td_(days=6)
 
     try:

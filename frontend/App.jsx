@@ -843,7 +843,7 @@ export default function App() {
             {Object.entries(SCENES).map(([key, value]) => {
               const SceneIcon = value.icon
               return (
-                <button className={`scene-choice ${scene === key ? 'selected' : ''}`} key={key} onClick={() => changeScene(key)}>
+                <button className={`scene-choice ${scene === key ? 'selected' : ''}`} key={key} onClick={() => setScene(key)}>
                   <SceneIcon size={20}/><span>{value.label}</span>
                   {scene === key && <Check size={15}/>}
                 </button>
