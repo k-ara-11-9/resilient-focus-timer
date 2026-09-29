@@ -46,7 +46,7 @@ Then, open `http://127.0.0.1:5000` in your browser.
 
 ### Frontend Assets
 
-The current implementation serves a bundled React app from the Flask backend (the built assets are in `static/`). The old vanilla JS assets from Release 1 are still present in `templates/` and `static/` but are deprecated in favor of the React implementation.
+The current implementation serves a bundled React app directly from the Flask backend. The built assets live in `frontend/dist/`, and Flask exposes them via a dedicated `/assets/<path>` route, with `/`, `/login`, `/signup`, and `/history` all serving the built React app. The old vanilla JS templates and scripts from Release 1 are still present in `templates/` and `static/`, but they are dead code — `render_template` is no longer called anywhere in `app.py` — and are deprecated in favor of the React implementation.
 
 ## Project Structure
 
@@ -70,8 +70,8 @@ The repository currently maintains a 100% pass rate (27/27 tests).
 ## Known Limitations
 
 - **Timezone Drift**: Analytics bucketing (`/analytics/daily` and `/analytics/heatmap`) currently relies on timezone resolution via `app.py`. If a user crosses timezone boundaries between starting a session and viewing analytics, date boundary buckets might misalign.
-- **Frontend Consolidation**: The React app operates alongside legacy vanilla JS code. Vite build output must currently be manually transferred to `static/` and `templates/` for Flask to serve it correctly, which complicates deployment. Consolidating this build pipeline is a pending priority.
-- **E2E Tests Structure**: The old `test_e2e.py` still expects legacy DOM selectors (from the Vanilla JS app). It needs a complete rewrite to utilize React-specific classes and test IDs.
+- **Legacy Code Cleanup**: The old vanilla JS templates and scripts in `templates/` and `static/*.js` are no longer wired up (`render_template` is unused) but are still shipped in the repo. They should be removed or explicitly archived.
+- **E2E Tests Structure**: The old `test_e2e.py` (and the legacy Playwright suite under `tests/legacy_vanilla/`) still expects legacy DOM selectors (`#username`, `#loginForm`) from the Vanilla JS app. Since `/login` now serves the React app with a different DOM structure, these tests are permanently broken and need a full rewrite against React-specific classes and test IDs, not just a rerun.
 
 ## API Documentation
 
