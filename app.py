@@ -40,35 +40,87 @@ def get_db():
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
-def init_db():
-    """Ensure all tables exist.  Safe to call on every startup because
-    the DDL uses CREATE TABLE IF NOT EXISTS."""
-    from schema import create_tables
+def auto_migrate_db():
+    """Robustly migrate database schema and create missing tables/columns."""
     conn = sqlite3.connect(DB_NAME)
-    create_tables(conn)
+    cursor = conn.cursor()
+    
+    # 1. Legacy Migrations
+    try:
+        # Check 'user' -> 'User'
+        cursor.execute("PRAGMA table_info(user)")
+        cols = [col[1] for col in cursor.fetchall()]
+        if 'name' in cols:
+            cursor.execute('''CREATE TABLE IF NOT EXISTS User_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)''')
+            cursor.execute("INSERT INTO User_new (id, username, email, password_hash) SELECT id, name, email, password FROM user")
+            cursor.execute("DROP TABLE user")
+            cursor.execute("ALTER TABLE User_new RENAME TO User")
+
+        # Check 'session' -> 'Session'
+        cursor.execute("PRAGMA table_info(session)")
+        cols = [col[1] for col in cursor.fetchall()]
+        if 'id' in cols and 'SessionID' not in cols:
+            cursor.execute('''CREATE TABLE IF NOT EXISTS Session_new (
+                SessionID INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
+                date DATE NOT NULL, start_time TIME NOT NULL, end_time TIME,
+                duration INTEGER, focus_duration INTEGER, status TEXT NOT NULL,
+                paused_ms INTEGER DEFAULT 0, last_pause_start_iso TEXT,
+                task_name TEXT, tags TEXT, FOREIGN KEY (user_id) REFERENCES User(id))''')
+            cursor.execute("INSERT INTO Session_new (SessionID, user_id, date, start_time, end_time, duration, status) SELECT id, user_id, date, start_time, end_time, duration, status FROM session")
+            cursor.execute("DROP TABLE session")
+            cursor.execute("ALTER TABLE Session_new RENAME TO Session")
+
+        # Check 'interruption' -> 'Interruption'
+        cursor.execute("PRAGMA table_info(interruption)")
+        cols = [col[1] for col in cursor.fetchall()]
+        if 'id' in cols and 'InterruptionID' not in cols:
+            cursor.execute('''CREATE TABLE IF NOT EXISTS Interruption_new (
+                InterruptionID INTEGER PRIMARY KEY AUTOINCREMENT, SessionID INTEGER NOT NULL,
+                user_id INTEGER, timestamp DATETIME NOT NULL,
+                FOREIGN KEY (SessionID) REFERENCES Session(SessionID),
+                FOREIGN KEY (user_id) REFERENCES User(id))''')
+            cursor.execute("INSERT INTO Interruption_new (InterruptionID, SessionID, user_id, timestamp) SELECT id, session_id, user_id, timestamp FROM interruption")
+            cursor.execute("DROP TABLE interruption")
+            cursor.execute("ALTER TABLE Interruption_new RENAME TO Interruption")
+
+        conn.commit()
+    except Exception as e:
+        print(f"Warning: Legacy migration check failed: {e}", file=sys.stderr)
+        conn.rollback()
+
+    # 2. Schema Creation (for new deployments)
+    try:
+        from schema import create_tables
+        create_tables(conn)
+    except Exception as e:
+        print(f"Warning: create_tables failed: {e}", file=sys.stderr)
+
+    # 3. Add missing columns to 'Session' if partially migrated
+    try:
+        cursor.execute("PRAGMA table_info(Session)")
+        cols = {col[1] for col in cursor.fetchall()}
+        for col, col_type in [
+            ("focus_duration", "INTEGER"),
+            ("paused_ms", "INTEGER DEFAULT 0"),
+            ("last_pause_start_iso", "TEXT"),
+            ("task_name", "TEXT"),
+            ("tags", "TEXT")
+        ]:
+            if col not in cols:
+                try:
+                    cursor.execute(f"ALTER TABLE Session ADD COLUMN {col} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+        conn.commit()
+    except Exception as e:
+        print(f"Warning: Column addition failed: {e}", file=sys.stderr)
+
     conn.close()
 
-def migrate_add_pause_columns():
-    """Non-destructive ALTER TABLE: adds paused_ms and last_pause_start_iso
-    columns to Session if they are missing.  Uses PRAGMA table_info to be
-    re-entrant and idempotent on every server restart.  Existing rows keep
-    their data; new columns default to 0 / NULL respectively."""
-    conn = sqlite3.connect(DB_NAME)
-    try:
-        cur = conn.cursor()
-        cur.execute("PRAGMA table_info(Session)")
-        cols = {row[1] for row in cur.fetchall()}
-        if 'paused_ms' not in cols:
-            cur.execute("ALTER TABLE Session ADD COLUMN paused_ms INTEGER DEFAULT 0")
-        if 'last_pause_start_iso' not in cols:
-            cur.execute("ALTER TABLE Session ADD COLUMN last_pause_start_iso TEXT")
-        conn.commit()
-    finally:
-        conn.close()
-
-# Auto-initialize on import so both `flask run` and `python app.py` work.
-init_db()
-migrate_add_pause_columns()
+# Auto-initialize on import so both `flask run` and `python app.py` (WSGI) work.
+auto_migrate_db()
 
 def login_required(f):
     @wraps(f)

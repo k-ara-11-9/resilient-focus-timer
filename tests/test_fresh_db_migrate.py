@@ -28,9 +28,8 @@ def test_fresh_db_migrate_and_full_lifecycle(monkeypatch):
         if 'app' in sys.modules:
             importlib.reload(sys.modules['app'])
         import app as app_mod
-        app_mod.init_db()
-        app_mod.migrate_add_pause_columns()
-        assert os.path.exists(fresh_path), "init_db should have created the DB file"
+        app_mod.auto_migrate_db()
+        assert os.path.exists(fresh_path), "auto_migrate_db should have created the DB file"
 
         flask_app = app_mod.app
         flask_app.config['TESTING'] = True
