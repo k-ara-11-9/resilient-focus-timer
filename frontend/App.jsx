@@ -885,10 +885,12 @@ export default function App() {
                 const h = maxBar > 0 ? Math.round(((day.focus_minutes || 0) / maxBar) * 100) : 0
                 const label = new Date(`${day.date}T00:00:00Z`).toLocaleDateString([], { weekday: 'short' }).charAt(0)
                 const isToday = index === weeklyMinutesData.length - 1
+                const focusMins = day.focus_minutes || 0
+                const tooltip = `${day.date}: ${focusMins} min focused`
                 return (
-                  <div className={isToday ? 'today' : ''} key={day.date}>
+                  <div className={isToday ? 'today' : ''} key={day.date} title={tooltip}>
                     <i style={{ height: `${Math.max(4, h)}%` }}/>
-                    <small title={day.date}>{label}</small>
+                    <small>{label}</small>
                   </div>
                 )
               })}
