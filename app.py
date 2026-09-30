@@ -117,6 +117,24 @@ def auto_migrate_db():
     except Exception as e:
         print(f"Warning: Column addition failed: {e}", file=sys.stderr)
 
+    # 4. Repair corrupted `start_time` data caused by older Python versions
+    # failing to parse Javascript `toISOString()` formats ending in `.xxxZ`.
+    try:
+        cursor.execute("SELECT SessionID, start_time FROM Session WHERE start_time LIKE '%T%'")
+        corrupt_sessions = cursor.fetchall()
+        for session_id, bad_time in corrupt_sessions:
+            try:
+                # e.g., '2026-09-30T06:17:15.345Z' -> date='2026-09-30', time='06:17:15'
+                fixed_date = bad_time.split('T')[0]
+                fixed_time = bad_time.split('T')[1].split('.')[0].replace('Z', '')
+                cursor.execute("UPDATE Session SET date = ?, start_time = ? WHERE SessionID = ?", 
+                               (fixed_date, fixed_time, session_id))
+            except Exception:
+                pass
+        conn.commit()
+    except Exception as e:
+        print(f"Warning: Data repair failed: {e}", file=sys.stderr)
+
     conn.close()
 
 # Auto-initialize on import so both `flask run` and `python app.py` (WSGI) work.
@@ -291,16 +309,20 @@ def create_session():
         focus_duration = 1500
     
     try:
-        # Attempt to parse as ISO datetime
-        from datetime import datetime as dt_module
-        dt = dt_module.fromisoformat(start_time_raw.replace('Z', '+00:00'))
-        date_part = dt.strftime('%Y-%m-%d')
-        time_part = dt.strftime('%H:%M:%S')
-    except ValueError:
-        # Fallback if just time is provided
+        # Safely parse JS ISO strings like '2026-09-30T06:17:15.345Z'
+        # bypassing Python < 3.11 fromisoformat limitations
+        if 'T' in start_time_raw:
+            date_part = start_time_raw.split('T')[0]
+            time_part = start_time_raw.split('T')[1].split('.')[0].replace('Z', '')
+        else:
+            # Fallback if just time is provided
+            from datetime import datetime as dt_module
+            date_part = dt_module.now().strftime('%Y-%m-%d')
+            time_part = start_time_raw
+    except Exception:
         from datetime import datetime as dt_module
         date_part = dt_module.now().strftime('%Y-%m-%d')
-        time_part = start_time_raw
+        time_part = "00:00:00"
 
     conn = get_db()
     cursor = conn.cursor()
