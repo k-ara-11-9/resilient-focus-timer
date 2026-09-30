@@ -64,3 +64,4 @@
 @media(max-width:760px){.row-expand{padding-left:65px}.history-row{grid-template-columns:47px 20px 1fr auto 20px}}
 @media(max-width:520px){.heatmap-grid{grid-template-columns:repeat(8,1fr)}}
 @media(max-width:390px){.timer-wrap{transform:scale(.78);margin-top:-7px;margin-bottom:-29px}.hero h1{font-size:34px}.start-button{padding:0 18px}.mode-tabs button{padding-inline:10px}}
+.bar-wrap { position: relative; } .bar-tooltip { position: absolute; bottom: calc(100% + 5px); background: rgba(18, 40, 35, 0.95); color: #b1dfa8; padding: 4px 6px; font-size: 10px; border-radius: 4px; pointer-events: none; opacity: 0; transform: translateY(5px); transition: 0.2s; white-space: nowrap; border: 1px solid rgba(177, 223, 168, 0.2); } .bar-wrap:hover .bar-tooltip { opacity: 1; transform: translateY(0); }

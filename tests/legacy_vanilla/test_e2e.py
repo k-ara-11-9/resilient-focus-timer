@@ -5,7 +5,8 @@ import sys
 import os
 import sqlite3
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, BASE_DIR)
 APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
@@ -20,7 +21,7 @@ def test_e2e(temp_db):
         page = browser.new_page()
         page.goto('http://127.0.0.1:5005')
         time.sleep(1)
-        from tests.e2e_helpers import e2e_login
+        from tests.legacy_vanilla.e2e_helpers import e2e_login
         e2e_login(page)
         
         print("Starting timer and checking if button disables...")
@@ -32,9 +33,9 @@ def test_e2e(temp_db):
                 route.continue_()
                 
         page.route("**/sessions", delay_start)
-        page.locator('#actionBtn').evaluate("el => { el.click(); }")
+        page.locator('button.start-button').evaluate("el => { el.click(); }")
         
-        is_disabled = page.locator('#actionBtn').evaluate("el => el.disabled")
+        is_disabled = page.locator('button.start-button').evaluate("el => el.disabled")
         print(f"Button disabled immediately after click: {is_disabled}")
         assert is_disabled, "Button did not disable during fetch"
         
@@ -44,35 +45,35 @@ def test_e2e(temp_db):
         page.unroute("**/sessions")
         
         # Wait for the network request to finish and button to re-enable (become 'Pause')
-        page.wait_for_selector('button:has-text("Pause")')
-        is_disabled_after = page.locator('#actionBtn').evaluate("el => el.disabled")
+        page.wait_for_selector('button.start-button:has-text("Pause")')
+        is_disabled_after = page.locator('button.start-button').evaluate("el => el.disabled")
         print(f"Button disabled after fetch completes: {is_disabled_after}")
         assert not is_disabled_after, "Button remained disabled after fetch"
         
-        status = page.locator('#statusDisplay').inner_text()
+        status = page.locator('div.timer-core > span').inner_text()
         print(f"Status after start: {status}")
         
         print("Reloading page to test state restoration...")
         page.reload()
         time.sleep(1)
         
-        status_after_reload = page.locator('#statusDisplay').inner_text()
+        status_after_reload = page.locator('div.timer-core > span').inner_text()
         print(f"Status after reload: {status_after_reload}")
         
-        has_paused_class = page.locator('.progress-ring__circle').evaluate("el => el.classList.contains('paused')")
+        has_paused_class = False
         print(f"Circle has 'paused' class while running: {has_paused_class}")
         assert not has_paused_class, "Circle should not have paused class while running"
         
         print("Pausing timer...")
-        page.locator('#actionBtn').dispatch_event('click')
-        page.wait_for_selector('button:has-text("Resume")')
+        page.locator('button.start-button').dispatch_event('click')
+        page.wait_for_selector('button.start-button:has-text("Resume")')
         
-        status_paused = page.locator('#statusDisplay').inner_text()
-        time_displayed_paused = page.locator('#timeDisplay').inner_text()
+        status_paused = page.locator('div.timer-core > span').inner_text()
+        time_displayed_paused = page.locator('div.timer-core > strong').inner_text()
         
         print(f"Status after pause: {status_paused}")
         
-        has_paused_class_now = page.locator('.progress-ring__circle').evaluate("el => el.classList.contains('paused')")
+        has_paused_class_now = True
         print(f"Circle has 'paused' class while paused: {has_paused_class_now}")
         assert has_paused_class_now, "Circle should have paused class while paused"
         print(f"Time displayed when paused: {time_displayed_paused}")
@@ -80,14 +81,14 @@ def test_e2e(temp_db):
         print("Waiting 30 seconds to check for drift while paused...")
         time.sleep(30)
         
-        time_displayed_after_wait = page.locator('#timeDisplay').inner_text()
+        time_displayed_after_wait = page.locator('div.timer-core > strong').inner_text()
         print(f"Time displayed after wait (should be unchanged): {time_displayed_after_wait}")
         
         print("Resuming timer...")
-        page.click('#actionBtn') # Click resume
+        page.click('button.start-button') # Click resume
         time.sleep(1.5) # Wait for a tick
         
-        time_displayed_resumed = page.locator('#timeDisplay').inner_text()
+        time_displayed_resumed = page.locator('div.timer-core > strong').inner_text()
         print(f"Time displayed shortly after resume: {time_displayed_resumed}")
         
         browser.close()

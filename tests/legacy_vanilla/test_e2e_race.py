@@ -5,7 +5,8 @@ from playwright.sync_api import sync_playwright
 import sys
 import os
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, BASE_DIR)
 APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
@@ -28,12 +29,12 @@ def test_e2e_race(temp_db):
             page.on("console", lambda msg: print(f"Browser console: {msg.text}"))
             page.goto('http://127.0.0.1:5005/')
             time.sleep(1)
-            from tests.e2e_helpers import e2e_login
+            from tests.legacy_vanilla.e2e_helpers import e2e_login
             e2e_login(page)
             
             # Start a session
-            page.locator('#actionBtn').click()
-            page.wait_for_selector('button:has-text("Pause")')
+            page.locator('button.start-button').click()
+            page.wait_for_selector('button.start-button:has-text("Pause")')
             
             # Get original session ID
             original_session_id = page.evaluate("currentSessionId")

@@ -6,7 +6,8 @@ import sys
 import os
 import datetime
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, BASE_DIR)
 APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
@@ -47,14 +48,14 @@ def test_e2e_recovery(temp_db):
             
             page.goto('http://127.0.0.1:5005/')
             time.sleep(1)
-            from tests.e2e_helpers import e2e_login
+            from tests.legacy_vanilla.e2e_helpers import e2e_login
             e2e_login(page)
             
             # Wait for JS to load and parse the running session
-            page.wait_for_selector('button:has-text("Pause")')
+            page.wait_for_selector('button.start-button:has-text("Pause")')
             time.sleep(1) # Let a tick happen
             
-            displayed_time = page.locator('#timeDisplay').inner_text()
+            displayed_time = page.locator('div.timer-core > strong').inner_text()
             print(f"Displayed countdown value: {displayed_time}")
             
             # 13 minutes have elapsed, so ~12 minutes should be remaining.

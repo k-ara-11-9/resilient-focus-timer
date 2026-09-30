@@ -5,7 +5,8 @@ from playwright.sync_api import sync_playwright
 import sys
 
 import os
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, BASE_DIR)
 APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
@@ -29,7 +30,7 @@ def test_e2e_tm02(temp_db):
             page = browser.new_page()
             page.goto('http://127.0.0.1:5005')
             time.sleep(1)
-            from tests.e2e_helpers import e2e_login
+            from tests.legacy_vanilla.e2e_helpers import e2e_login
             e2e_login(page)
             time.sleep(1) # wait for async fetch
             
@@ -38,10 +39,10 @@ def test_e2e_tm02(temp_db):
             print(f"Intrusion button disabled initially: {is_disabled}")
             
             print("Starting timer...")
-            page.click('#actionBtn')
+            page.click('button.start-button')
             time.sleep(1)
             
-            status = page.locator('#statusDisplay').inner_text()
+            status = page.locator('div.timer-core > span').inner_text()
             print(f"Status after start: {status}")
             
             is_disabled = page.locator('#intrusionBtn').is_disabled()
@@ -80,7 +81,7 @@ def test_e2e_tm02(temp_db):
             assert count == "4", f"Expected count 4 after 3 rapid clicks (debounced to 1), got {count}"
             
             print("Pausing timer...")
-            page.click('#actionBtn') # Click pause
+            page.click('button.start-button') # Click pause
             time.sleep(1)
             
             is_disabled = page.locator('#intrusionBtn').is_disabled()
@@ -89,7 +90,7 @@ def test_e2e_tm02(temp_db):
             print("=== NEW TEST: Active Session Server-Side Recovery ===")
             # 1. Clean up and start a session normally
             print("Starting a fresh session for recovery test...")
-            page.click('#actionBtn') # Resumes from paused state in previous test
+            page.click('button.start-button') # Resumes from paused state in previous test
             time.sleep(1)
             
             # 2. Programmatically clear the browser's localStorage
@@ -102,7 +103,7 @@ def test_e2e_tm02(temp_db):
             time.sleep(1) # wait for async fetch
             
             # 4. Assert button states
-            action_text = page.locator('#actionBtn').inner_text()
+            action_text = page.locator('button.start-button').inner_text()
             is_disabled = page.locator('#intrusionBtn').is_disabled()
             print(f"Start/Pause button text (expected 'Pause'): {action_text}")
             print(f"Intrusion button disabled (expected False): {is_disabled}")
@@ -122,7 +123,7 @@ def test_e2e_tm02(temp_db):
             page.reload()
             time.sleep(1)
             
-            action_text = page.locator('#actionBtn').inner_text()
+            action_text = page.locator('button.start-button').inner_text()
             is_disabled = page.locator('#intrusionBtn').is_disabled()
             print(f"Start/Pause button text (expected 'Start Timer'): {action_text}")
             print(f"Intrusion button disabled (expected True): {is_disabled}")

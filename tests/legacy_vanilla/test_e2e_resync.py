@@ -7,7 +7,8 @@ import sys
 import os
 import datetime
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, BASE_DIR)
 APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
@@ -29,12 +30,12 @@ def test_e2e_resync(temp_db):
             print("=== TEST: Resync of legitimately ended session ===")
             page.goto('http://127.0.0.1:5005/')
             time.sleep(1)
-            from tests.e2e_helpers import e2e_login
+            from tests.legacy_vanilla.e2e_helpers import e2e_login
             e2e_login(page)
             
             # Start a session (Device A)
-            page.locator('#actionBtn').click()
-            page.wait_for_selector('button:has-text("Pause")')
+            page.locator('button.start-button').click()
+            page.wait_for_selector('button.start-button:has-text("Pause")')
             
             # Get original session ID
             session_id = page.evaluate("currentSessionId")
@@ -59,7 +60,7 @@ def test_e2e_resync(temp_db):
             time.sleep(1) # Wait for loadState to complete fetching
             
             # Check the UI state on Device A
-            action_btn_text = page.locator('#actionBtn').inner_text()
+            action_btn_text = page.locator('button.start-button').inner_text()
             print(f"Device A action button text is: {action_btn_text}")
             
             if action_btn_text == "Resume":

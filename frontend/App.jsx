@@ -843,7 +843,7 @@ export default function App() {
             {Object.entries(SCENES).map(([key, value]) => {
               const SceneIcon = value.icon
               return (
-                <button className={`scene-choice ${scene === key ? 'selected' : ''}`} key={key} onClick={() => setScene(key)}>
+                <button className={`scene-choice ${scene === key ? 'selected' : ''}`} key={key} onClick={() => changeScene(key)}>
                   <SceneIcon size={20}/><span>{value.label}</span>
                   {scene === key && <Check size={15}/>}
                 </button>
@@ -883,12 +883,14 @@ export default function App() {
             <div className="bars">
               {weeklyMinutesData.map((day, index) => {
                 const h = maxBar > 0 ? Math.round(((day.focus_minutes || 0) / maxBar) * 100) : 0
-                const label = new Date(`${day.date}T00:00:00Z`).toLocaleDateString([], { weekday: 'short' }).charAt(0)
+                const [yy, mm, dd] = day.date.split('-')
+                const dObj = new Date(yy, mm - 1, dd)
+                const label = dObj.toLocaleDateString([], { weekday: 'short' }).charAt(0)
                 const isToday = index === weeklyMinutesData.length - 1
                 const focusMins = day.focus_minutes || 0
-                const tooltip = `${day.date}: ${focusMins} min focused`
                 return (
-                  <div className={isToday ? 'today' : ''} key={day.date} title={tooltip}>
+                  <div className={`bar-wrap ${isToday ? 'today' : ''}`} key={day.date}>
+                    <div className="bar-tooltip">{focusMins}m</div>
                     <i style={{ height: `${Math.max(4, h)}%` }}/>
                     <small>{label}</small>
                   </div>
@@ -1091,8 +1093,9 @@ function AuthScreen({ view, onToggle, onLogin, onSignup, error, forbidden }) {
           {error && <div className="auth-err"><AlertCircle size={14} /> {error}</div>}
           {forbidden && <div className="auth-err auth-err-warn"><AlertCircle size={14} /> {forbidden}</div>}
           <div className="field">
-            <label>Username</label>
+            <label htmlFor="username">Username</label>
             <input
+              id="username"
               type="text"
               value={username}
               onChange={e => setUsername(e.target.value)}
@@ -1104,8 +1107,9 @@ function AuthScreen({ view, onToggle, onLogin, onSignup, error, forbidden }) {
           </div>
           {view === 'signup' && (
             <div className="field">
-              <label>Email</label>
+              <label htmlFor="email">Email</label>
               <input
+                id="email"
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -1117,8 +1121,9 @@ function AuthScreen({ view, onToggle, onLogin, onSignup, error, forbidden }) {
             </div>
           )}
           <div className="field">
-            <label>Password</label>
+            <label htmlFor="password">Password</label>
             <input
+              id="password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}

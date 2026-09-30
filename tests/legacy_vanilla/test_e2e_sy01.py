@@ -5,7 +5,8 @@ from playwright.sync_api import sync_playwright
 import sys
 
 import os
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, BASE_DIR)
 APP_PATH = os.path.join(BASE_DIR, 'app.py')
 DB_PATH = os.path.join(BASE_DIR, 'focus_timer.db')
 
@@ -44,7 +45,7 @@ def test_e2e_sy01(temp_db):
             
             page.goto('http://127.0.0.1:5005/')
             time.sleep(1)
-            from tests.e2e_helpers import e2e_login
+            from tests.legacy_vanilla.e2e_helpers import e2e_login
             e2e_login(page)
             time.sleep(1)
             
@@ -52,7 +53,7 @@ def test_e2e_sy01(temp_db):
             page.click('button:has-text("Start Timer")')
             
             # Wait a bit for the POST /sessions request to finish and timer to establish
-            page.wait_for_selector('button:has-text("Pause")')
+            page.wait_for_selector('button.start-button:has-text("Pause")')
             time.sleep(1)
             
             # Now we monitor local fetch/xhr requests during the active phase

@@ -865,6 +865,11 @@ def signup_page():
 def index():
     return render_react()
 
+if 'serve_assets' not in app.view_functions:
+    @app.route('/assets/<path:filename>')
+    def serve_assets(filename):
+        return send_from_directory(os.path.join(BASE_DIR, 'frontend', 'dist', 'assets'), filename)
+
 if __name__ == '__main__':
     port = int(os.environ.get('FLASK_RUN_PORT', 5000))
     app.run(debug=False, port=port)
